@@ -1,24 +1,43 @@
-import requests
-import pandas as pd
 from datetime import datetime
+
+import pandas as pd
+import requests
 from unidecode import unidecode
 
+from infrastructure.config import Config
 
-class BetplayApi:
-    headers = {
-        'user-agent': 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/96.0.4664.45 Safari/537.36',
-    }
 
-    baseUrl = "https://na-offering-api.kambicdn.net/offering/v2018/betplay"
+class BetplayAPIClient:
+
+    @staticmethod
+    def fetch_leagues():
+        try:
+            response = requests.get(
+                Config.API_URL,
+                params=Config.DEFAULT_PARAMS,
+                headers=Config.HEADERS,
+                timeout=10
+            )
+            response.raise_for_status()
+            return response.json().get('groups', [])
+        except requests.exceptions.RequestException as e:
+            print(f"[API Error] {str(e)}")
+            return None
 
     def get_full_data(self, path):
         df_partidos = self.get_datos_partidos(path)
         df_resultado = df_partidos
         return df_resultado
 
+
     def get_datos_partidos(self, path):
-        url_api_partido = self.baseUrl + "/listView" + path + ".json?lang=es_ES&market=CO&client_id=2&channel_id=1&ncid=1641434042006&useCombined=true"
-        response = requests.get(url_api_partido, headers=self.headers)
+        headers = {
+            'user-agent': 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/96.0.4664.45 Safari/537.36',
+        }
+
+        baseUrl = "https://na-offering-api.kambicdn.net/offering/v2018/betplay"
+        url_api_partido = baseUrl + "/listView" + path + ".json?lang=es_ES&market=CO&client_id=2&channel_id=1&ncid=1641434042006&useCombined=true"
+        response = requests.get(url_api_partido, headers=headers)
         data_api_partido = response.json()
         partidos = data_api_partido["events"]
 
@@ -59,10 +78,15 @@ class BetplayApi:
 
         return df_resultado
 
+
     def get_data_event_by_category(self, path, category):
+        baseUrl = "https://na-offering-api.kambicdn.net/offering/v2018/betplay"
+        headers = {
+            'user-agent': 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/96.0.4664.45 Safari/537.36',
+        }
         endpoint = ".json?lang=es_ES&market=CO&client_id=2&channel_id=1&ncid=1641434366938&category=" + category + "&useCombined=true";
-        url_api = self.baseUrl + "/listView" + path + endpoint
-        response = requests.get(url_api, headers=self.headers)
+        url_api = baseUrl + "/listView" + path + endpoint
+        response = requests.get(url_api, headers=headers)
         data_api_json = response.json()
         events = data_api_json["events"]
 
@@ -80,6 +104,7 @@ class BetplayApi:
         df_partidos = pd.DataFrame(lista_partidos)
         return df_partidos
 
+
     def get_offers_event(self, bet_offers):
         dicc_offers = {}
         for offer in bet_offers:
@@ -94,4 +119,3 @@ class BetplayApi:
                 if outcome.get('odds') is not None:
                     dicc_offers[title_aux] = outcome["odds"] / 1000
         return dicc_offers
-
