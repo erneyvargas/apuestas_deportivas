@@ -1,4 +1,4 @@
-from infrastructure.fbref_data import FbrefData
+from infrastructure.fbref.fbref_data import FbrefData
 
 
 class FbrefService:

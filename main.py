@@ -1,5 +1,4 @@
-from application.betplay_service import BetplayService
-from application.fbref_service import FbrefService
+from application.betplay.betplay_service import BetplayService
 
 
 def main():

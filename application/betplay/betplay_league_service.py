@@ -1,6 +1,6 @@
-from domain.models import League
-from infrastructure.api_client import BetplayAPIClient
-from infrastructure.persistence.mongo_repository import MongoLeagueRepository
+from domain.betplay.models import League
+from infrastructure.betplay.betplay_api_client import BetplayAPIClient
+from infrastructure.betplay.persistence.mongo_league_repository import MongoLeagueRepository
 
 class BetplayLeagueService:
     def __init__(self, repository=None):

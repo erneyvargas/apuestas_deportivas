@@ -1,10 +1,11 @@
 from pymongo.errors import PyMongoError
-from domain.repositories import LeagueRepository
-from infrastructure.config import Config
+from domain.betplay.repositories import LeagueRepository
+from infrastructure.betplay.persistence.mongo_config import MongoConfig
+
 
 class MongoLeagueRepository(LeagueRepository):
     def __init__(self):
-        self.db = Config.get_db()
+        self.db = MongoConfig.get_db()
         self.collection = self.db['ligas_betplay']
 
     def save_leagues(self, leagues):
