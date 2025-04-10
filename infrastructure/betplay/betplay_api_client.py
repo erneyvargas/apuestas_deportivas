@@ -20,6 +20,7 @@ class BetplayAPIClient:
             )
             response.raise_for_status()
             return response.json().get('groups', [])
+
         except requests.exceptions.RequestException as e:
             print(f"[API Error] {str(e)}")
             return None
@@ -67,9 +68,9 @@ class BetplayAPIClient:
         df_resultado = df_resultado.merge(df_doble_oportunidad)
         df_resultado = df_resultado.merge(df_primer_tiempo)
         df_resultado = df_resultado.merge(df_sin_empate)
-        # df_resultado = df_resultado.merge(df_handicap_asiatico)
-        # df_resultado = df_resultado.merge(df_goles_equipo_local)
-        # df_resultado = df_resultado.merge(df_goles_equipo_visitante)
+        df_resultado = df_resultado.merge(df_handicap_asiatico)
+        df_resultado = df_resultado.merge(df_goles_equipo_local)
+        df_resultado = df_resultado.merge(df_goles_equipo_visitante)
         df_resultado = df_resultado.merge(df_corners)
 
         return df_resultado
@@ -77,7 +78,7 @@ class BetplayAPIClient:
 
     def get_data_event_by_category(self, path, category):
 
-        endpoint = ".json?lang=es_ES&market=CO&client_id=2&channel_id=1&ncid=1641434366938&category=" + category + "&useCombined=true";
+        endpoint = ".json?lang=es_ES&market=CO&client_id=2&channel_id=1&ncid=1641434366938&category=" + category + "&useCombined=true"
         url_api = Config.API_URL + "/listView" + path + endpoint
         response = requests.get(url_api, headers=Config.HEADERS)
         data_api_json = response.json()

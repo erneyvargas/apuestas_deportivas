@@ -1,8 +1,3 @@
-import os
-from pymongo import MongoClient
-from pymongo.errors import PyMongoError
-
-
 class Config:
     API_URL = "https://us1.offering-api.kambicdn.com/offering/v2018/betplay"
     DEFAULT_PARAMS = {
