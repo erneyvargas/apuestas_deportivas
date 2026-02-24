@@ -1,18 +1,32 @@
+import pandas as pd
 from infrastructure.fbref.fbref_data import FbrefData
+from infrastructure.persistence.mongo_db_repository import MongoDBRepository
 
 
 class FbrefService:
     def __init__(self):
         self.fbref_data = FbrefData()
+        self.repo = MongoDBRepository()
+
+    def _flatten_columns(self, df: pd.DataFrame) -> pd.DataFrame:
+        """Aplana columnas MultiIndex filtrando niveles 'Unnamed'"""
+        if isinstance(df.columns, pd.MultiIndex):
+            new_cols = []
+            for col in df.columns:
+                parts = [str(c) for c in col if "Unnamed" not in str(c)]
+                new_cols.append("_".join(parts) if parts else str(col[-1]))
+            df.columns = new_cols
+        return df
 
     def get_data_frame(self):
-        """Obtiene y muestra los DataFrames de Fbref"""
-        data_frames = self.fbref_data.get_data_table()
+        """Obtiene los DataFrames de FBRef y los guarda en MongoDB"""
+        tables = self.fbref_data.get_data_table()
 
-        if not data_frames:
+        if not tables:
             print("❌ No se encontraron datos en Fbref")
             return
 
-        for i, df in enumerate(data_frames, start=1):
-            print(f"📌 DataFrame {i}:")
-            print(df.head())  # Muestra las primeras filas
+        print(f"📊 Tablas encontradas: {len(tables)}")
+        for table_id, df in tables.items():
+            df = self._flatten_columns(df)
+            self.repo.save_dataframe_to_collection(f"fbref_{table_id}", df)
