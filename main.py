@@ -1,18 +1,20 @@
 from application.betplay.betplay_service import BetplayService
 from application.fbref.fbref_service import FbrefService
-
-LEAGUE_DB = "premier_league"
+from infrastructure.persistence.leagues_config_repository import LeaguesConfigRepository
 
 
 def main():
-    betplay_service = BetplayService(league_term_key=LEAGUE_DB)
-    betplay_service.save_league_odds()
+    leagues = LeaguesConfigRepository().find_all()
 
-    fbref_service = FbrefService(
-        league_slug="/09/Estadisticas-de-Premier-League",
-        db_name=LEAGUE_DB
-    )
-    fbref_service.get_data_frame()
+    for league in leagues:
+        print(f"\n🏆 Liga: {league['name']}")
+
+        BetplayService(league_term_key=league['term_key']).save_league_odds()
+
+        FbrefService(
+            league_slug=league['league_slug'],
+            db_name=league['league_db']
+        ).get_data_frame()
 
 
 
