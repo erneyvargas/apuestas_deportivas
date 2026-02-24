@@ -8,7 +8,7 @@ class LeaguesConfigRepository:
     def __init__(self):
         self.collection = MongoConfig.get_db(CONFIG_DB)[LEAGUES_COLLECTION]
 
-    def save(self, league_db: str, term_key: str, league_slug: str, name: str):
+    def save(self, league_db: str, term_key: str, league_slug: str, name: str, betplay_path: str):
         """Inserta o actualiza la configuración de una liga"""
         self.collection.update_one(
             {"league_db": league_db},
@@ -16,6 +16,7 @@ class LeaguesConfigRepository:
                 "league_db": league_db,
                 "term_key": term_key,
                 "league_slug": league_slug,
+                "betplay_path": betplay_path,
                 "name": name,
             }},
             upsert=True

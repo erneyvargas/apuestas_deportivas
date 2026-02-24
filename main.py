@@ -9,7 +9,7 @@ def main():
     for league in leagues:
         print(f"\n🏆 Liga: {league['name']}")
 
-        BetplayService(league_term_key=league['term_key']).save_league_odds()
+        BetplayService(league_db=league['league_db'], betplay_path=league['betplay_path']).save_league_odds()
 
         FbrefService(
             league_slug=league['league_slug'],
