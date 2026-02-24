@@ -1,56 +1,38 @@
-import time
 import pandas as pd
 from infrastructure.betplay.betplay_api_client import BetplayAPIClient
-from infrastructure.persistence.mongo_config import MongoConfig
 from infrastructure.persistence.mongo_db_repository import MongoDBRepository
 
 
 class BetplayService:
-    def __init__(self):
-        self.db = MongoConfig.get_db()
+    def __init__(self, league_term_key: str):
+        self.league_term_key = league_term_key
         self.api_client = BetplayAPIClient()
-        self.repository = MongoDBRepository()
-    def process_leagues(self):
-        """Procesa y guarda las ligas en la base de datos directamente desde DataFrame"""
+        self.repository = MongoDBRepository(db_name=league_term_key)
+
+    def save_league_odds(self):
+        """Obtiene y guarda las cuotas de la liga en la colección 'betplay'"""
         leagues_data = self.api_client.fetch_leagues()
         if not leagues_data:
-            return False
+            print("❌ No se pudieron obtener las ligas de Betplay")
+            return
 
-        # Convertir a DataFrame y filtrar fútbol
         df_leagues = pd.DataFrame(leagues_data)
-        df_leagues = df_leagues[df_leagues['sport'] == 'FOOTBALL']
+        league = df_leagues[df_leagues['termKey'] == self.league_term_key]
+
+        if league.empty:
+            print(f"❌ Liga '{self.league_term_key}' no encontrada en Betplay")
+            return
+
+        path_term_id = league.iloc[0]['pathTermId']
+        print(f"📌 Procesando: {self.league_term_key}")
+
+        df_betplay = self.api_client.get_full_data(path_term_id)
+        if df_betplay.empty:
+            print(f"❌ No se encontraron datos para {self.league_term_key}")
+            return
 
         self.repository.save_dataframe_to_collection(
-            collection_name='ligas_betplay',
-            df=df_leagues,
+            collection_name='betplay',
+            df=df_betplay,
             clear_collection=True
         )
-        return True
-
-    def leagues_betplay(self):
-        """Procesa ligas y sus eventos en MongoDB"""
-        self.process_leagues()
-
-        collection_leagues = self.db['ligas_betplay']
-        leagues = collection_leagues.find({"sport": "FOOTBALL"})
-
-        for league in leagues:
-            name_league = league["termKey"]
-            print(f"📌 Procesando liga: {name_league}")
-
-            collection = self.db[name_league]
-            if name_league not in self.db.list_collection_names():
-                self.db.create_collection(name_league)
-                collection = self.db[name_league]
-
-            df_betplay = self.api_client.get_full_data(league['pathTermId'])
-            if df_betplay.empty:
-                print(f"❌ No se encontraron datos para {name_league}")
-                continue
-
-            self.repository.save_dataframe_to_collection(
-                collection_name=name_league,
-                df=df_betplay,
-                clear_collection=False
-            )
-            time.sleep(2)  # Respetar el rate limit de la API
