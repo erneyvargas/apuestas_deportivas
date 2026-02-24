@@ -4,8 +4,8 @@ from infrastructure.persistence.mongo_config import MongoConfig
 
 
 class MongoDBRepository:
-    def __init__(self):
-        self.db = MongoConfig.get_db()
+    def __init__(self, db_name: str = None):
+        self.db = MongoConfig.get_db(db_name)
 
     def save_dataframe_to_collection(
             self,

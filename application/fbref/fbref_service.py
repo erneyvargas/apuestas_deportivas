@@ -1,12 +1,13 @@
 import pandas as pd
 from infrastructure.fbref.fbref_data import FbrefData
 from infrastructure.persistence.mongo_db_repository import MongoDBRepository
+from infrastructure.persistence.mongo_config import MongoConfig
 
 
 class FbrefService:
     def __init__(self, league_slug: str):
         self.fbref_data = FbrefData(league_slug)
-        self.repo = MongoDBRepository()
+        self.repo = MongoDBRepository(db_name=MongoConfig.FBREF_DB_NAME)
 
     def _flatten_columns(self, df: pd.DataFrame) -> pd.DataFrame:
         """Aplana columnas MultiIndex filtrando niveles 'Unnamed'"""
