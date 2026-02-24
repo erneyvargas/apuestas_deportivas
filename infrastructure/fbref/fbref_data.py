@@ -1,4 +1,6 @@
 import pandas as pd
+from io import StringIO
+from seleniumbase import SB
 
 
 class FbrefData:
@@ -7,13 +9,13 @@ class FbrefData:
     def get_data_table(self):
         """Obtiene todas las tablas de datos desde Fbref"""
         try:
-            df_total = pd.read_html(self.URL)
-            df_list_response = []
+            with SB(uc=True, headless=False) as sb:
+                sb.open(self.URL)
+                sb.sleep(5)
+                html = sb.get_page_source()
 
-            for df in df_total:
-                df_list_response.append(df)
-
-            return df_list_response
+            df_total = pd.read_html(StringIO(html), flavor="lxml")
+            return list(df_total)
 
         except Exception as e:
             print(f"❌ Error obteniendo datos de Fbref: {e}")
