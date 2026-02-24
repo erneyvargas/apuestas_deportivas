@@ -5,7 +5,7 @@ from seleniumbase import SB
 
 
 class FbrefData:
-    BASE_URL = "https://fbref.com/es/comps/9"
+    BASE_URL = "https://fbref.com/es/comps"
 
     def __init__(self, league_slug: str):
         self.url = f"{self.BASE_URL}/{league_slug}"
