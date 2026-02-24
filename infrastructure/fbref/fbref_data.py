@@ -5,13 +5,16 @@ from seleniumbase import SB
 
 
 class FbrefData:
-    URL = "https://fbref.com/es/comps/9/Estadisticas-de-Premier-League"
+    BASE_URL = "https://fbref.com/es/comps/9"
+
+    def __init__(self, league_slug: str):
+        self.url = f"{self.BASE_URL}/{league_slug}"
 
     def get_data_table(self) -> dict[str, pd.DataFrame]:
         """Obtiene las tablas de FBRef indexadas por su ID HTML"""
         try:
             with SB(uc=True, headless=False) as sb:
-                sb.open(self.URL)
+                sb.open(self.url)
                 sb.sleep(5)
                 html = sb.get_page_source()
 

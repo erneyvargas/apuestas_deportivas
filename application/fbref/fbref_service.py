@@ -4,8 +4,8 @@ from infrastructure.persistence.mongo_db_repository import MongoDBRepository
 
 
 class FbrefService:
-    def __init__(self):
-        self.fbref_data = FbrefData()
+    def __init__(self, league_slug: str):
+        self.fbref_data = FbrefData(league_slug)
         self.repo = MongoDBRepository()
 
     def _flatten_columns(self, df: pd.DataFrame) -> pd.DataFrame:
