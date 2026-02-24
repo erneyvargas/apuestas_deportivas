@@ -4,7 +4,7 @@ from infrastructure.persistence.leagues_config_repository import LeaguesConfigRe
 
 
 def main():
-    leagues = LeaguesConfigRepository().find_all()
+    leagues = LeaguesConfigRepository().find_active()
 
     for league in leagues:
         print(f"\n🏆 Liga: {league['name']}")

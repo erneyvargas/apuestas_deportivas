@@ -23,6 +23,10 @@ class LeaguesConfigRepository:
         )
         print(f"✅ Config guardada: {name}")
 
+    def find_active(self) -> list[dict]:
+        """Retorna solo las ligas con active=True"""
+        return list(self.collection.find({"active": True}, {"_id": 0}))
+
     def find_all(self) -> list[dict]:
         """Retorna todas las ligas configuradas"""
         return list(self.collection.find({}, {"_id": 0}))
