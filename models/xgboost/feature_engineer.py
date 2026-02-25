@@ -99,13 +99,15 @@ def build_features(df: pd.DataFrame) -> tuple[pd.DataFrame, pd.Series]:
             "odd_h":         float(match["B365H"]),
             "odd_d":         float(match["B365D"]),
             "odd_a":         float(match["B365A"]),
+            "season":        match["season"],
             "result":        0 if match["FTR"] == "H" else (1 if match["FTR"] == "D" else 2),
         })
 
     features_df = pd.DataFrame(rows)
-    X = features_df.drop(columns=["result"])
+    X = features_df.drop(columns=["result", "season"])
     y = features_df["result"]
-    return X, y
+    seasons = features_df["season"]
+    return X, y, seasons
 
 
 def build_match_features(

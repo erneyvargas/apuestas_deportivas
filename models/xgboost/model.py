@@ -27,8 +27,8 @@ class XGBoostResult:
             n_jobs=-1,
         )
 
-    def fit(self, X: pd.DataFrame, y: pd.Series) -> "XGBoostResult":
-        self.clf.fit(X, y)
+    def fit(self, X: pd.DataFrame, y: pd.Series, sample_weight=None) -> "XGBoostResult":
+        self.clf.fit(X, y, sample_weight=sample_weight)
         return self
 
     def predict(self, X: pd.DataFrame) -> dict:
