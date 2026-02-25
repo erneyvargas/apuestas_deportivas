@@ -18,6 +18,11 @@ class FbrefService:
             df.columns = new_cols
         return df
 
+    def _save_tables(self, tables: dict):
+        for table_id, df in tables.items():
+            df = self._flatten_columns(df)
+            self.repo.save_dataframe_to_collection(f"fbref_{table_id}", df)
+
     def get_data_frame(self):
         """Obtiene los DataFrames de FBRef y los guarda en MongoDB"""
         tables = self.fbref_data.get_data_table()
@@ -27,6 +32,15 @@ class FbrefService:
             return
 
         print(f"📊 Tablas encontradas: {len(tables)}")
-        for table_id, df in tables.items():
-            df = self._flatten_columns(df)
-            self.repo.save_dataframe_to_collection(f"fbref_{table_id}", df)
+        self._save_tables(tables)
+
+    def get_passing_data(self):
+        """Obtiene las tablas de pass types (incluye CK = corner kicks) y las guarda en MongoDB"""
+        tables = self.fbref_data.get_data_table_by_section("passing_types")
+
+        if not tables:
+            print("❌ No se encontraron datos de passing types en Fbref")
+            return
+
+        print(f"📊 Tablas de passing types encontradas: {len(tables)}")
+        self._save_tables(tables)

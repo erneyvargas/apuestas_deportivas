@@ -10,11 +10,11 @@ class FbrefData:
     def __init__(self, league_slug: str):
         self.url = f"{self.BASE_URL}/{league_slug}"
 
-    def get_data_table(self) -> dict[str, pd.DataFrame]:
-        """Obtiene las tablas de FBRef indexadas por su ID HTML"""
+    def _scrape_tables(self, url: str) -> dict[str, pd.DataFrame]:
+        """Abre una URL con Selenium y extrae todas las tablas indexadas por ID HTML"""
         try:
             with SB(uc=True, headless=False) as sb:
-                sb.open(self.url)
+                sb.open(url)
                 sb.sleep(5)
                 html = sb.get_page_source()
 
@@ -32,3 +32,15 @@ class FbrefData:
         except Exception as e:
             print(f"❌ Error obteniendo datos de Fbref: {e}")
             return {}
+
+    def get_data_table(self) -> dict[str, pd.DataFrame]:
+        """Obtiene las tablas de FBRef indexadas por su ID HTML"""
+        return self._scrape_tables(self.url)
+
+    def get_data_table_by_section(self, section: str) -> dict[str, pd.DataFrame]:
+        """Obtiene las tablas de una sección específica (ej: 'passing', 'misc')"""
+        # self.url: https://fbref.com/es/comps/09/Estadisticas-de-Premier-League
+        # section url: https://fbref.com/es/comps/09/passing/Estadisticas-de-Premier-League
+        base, title = self.url.rsplit("/", 1)
+        section_url = f"{base}/{section}/{title}"
+        return self._scrape_tables(section_url)

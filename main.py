@@ -11,10 +11,12 @@ def main():
 
         BetplayService(league_db=league['league_db'], betplay_path=league['betplay_path']).save_league_odds()
 
-        FbrefService(
+        fbref = FbrefService(
             league_slug=league['league_slug'],
             db_name=league['league_db']
-        ).get_data_frame()
+        )
+        fbref.get_data_frame()
+        fbref.get_passing_data()
 
 
 
