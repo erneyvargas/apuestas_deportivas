@@ -66,7 +66,7 @@ def build_features(df: pd.DataFrame) -> tuple[pd.DataFrame, pd.Series]:
     Target: H=0, D=1, A=2
     """
     df = df.copy()
-    df["Date"] = pd.to_datetime(df["Date"], dayfirst=True)
+    df["Date"] = pd.to_datetime(df["Date"], format="mixed", dayfirst=True)
     df = df.sort_values("Date").reset_index(drop=True)
 
     # Eliminar filas sin odds históricas o resultado
@@ -121,7 +121,7 @@ def build_match_features(
     Usa todos los partidos disponibles como referencia de forma (sin corte de fecha).
     """
     df_history = df_history.copy()
-    df_history["Date"] = pd.to_datetime(df_history["Date"], dayfirst=True)
+    df_history["Date"] = pd.to_datetime(df_history["Date"], format="mixed", dayfirst=True)
     future_date = df_history["Date"].max() + pd.Timedelta(days=1)
 
     hs = _team_stats(home, future_date, df_history)
