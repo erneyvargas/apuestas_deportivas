@@ -11,10 +11,6 @@ class CornersPoisson:
     """
 
     MAX_CORNERS = 25
-    # Media real de corners por equipo por partido en PL (~5.25 = 10.5 totales).
-    # Se usa para calibrar la salida, ya que el proxy de entrada (cruces) está
-    # en unidades distintas. Los factores ataque/defensa son adimensionales.
-    CORNERS_PER_GAME = 5.25
 
     def __init__(self):
         self.avg_corners = None
@@ -46,10 +42,8 @@ class CornersPoisson:
             missing = home_team if home_team not in self.attack else away_team
             raise ValueError(f"Equipo no encontrado en el modelo de corners: '{missing}'")
 
-        # Usamos CORNERS_PER_GAME como baseline para convertir los factores
-        # (calculados con cruces como proxy) a unidades de corners reales.
-        xc_home = self.attack[home_team] * self.defense[away_team] * self.CORNERS_PER_GAME
-        xc_away = self.attack[away_team] * self.defense[home_team] * self.CORNERS_PER_GAME
+        xc_home = self.attack[home_team] * self.defense[away_team] * self.avg_corners
+        xc_away = self.attack[away_team] * self.defense[home_team] * self.avg_corners
         xc_total = xc_home + xc_away
 
         # Suma de dos Poisson independientes = Poisson(lambda1 + lambda2)

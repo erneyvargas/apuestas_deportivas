@@ -1,4 +1,10 @@
-from models.poisson.data_loader import load_home_away, load_matches, load_corners_stats
+from models.poisson.data_loader import (
+    load_home_away,
+    load_home_away_historical,
+    load_matches,
+    load_corners_stats,
+    load_corners_stats_historical,
+)
 from models.poisson.model import FootballPoisson
 from models.poisson.corners_model import CornersPoisson
 
@@ -24,7 +30,13 @@ def _print_rows(rows):
 
 
 def run(db_name: str):
-    df_home_away = load_home_away(db_name)
+    try:
+        df_home_away = load_home_away_historical(db_name)
+        print("📊 Modelo de goles: datos históricos (10 temporadas)")
+    except RuntimeError:
+        df_home_away = load_home_away(db_name)
+        print("📊 Modelo de goles: temporada actual (FBRef)")
+
     df_matches = load_matches(db_name)
 
     goals_model = FootballPoisson()
@@ -32,11 +44,18 @@ def run(db_name: str):
 
     corners_model = None
     try:
-        df_corners = load_corners_stats(db_name)
+        df_corners = load_corners_stats_historical(db_name)
         corners_model = CornersPoisson()
         corners_model.fit(df_corners)
-    except RuntimeError as e:
-        print(f"\n⚠️  Corners model no disponible: {e}")
+        print("📊 Modelo de corners: datos históricos reales (HC/AC)")
+    except RuntimeError:
+        try:
+            df_corners = load_corners_stats(db_name)
+            corners_model = CornersPoisson()
+            corners_model.fit(df_corners)
+            print("📊 Modelo de corners: proxy de crosses (FBRef)")
+        except RuntimeError as e:
+            print(f"\n⚠️  Corners model no disponible: {e}")
 
     print(f"\n{'='*65}")
     print(f"  PREDICCIONES POISSON — {db_name.upper().replace('_', ' ')}")
