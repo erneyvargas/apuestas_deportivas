@@ -5,8 +5,8 @@ from io import StringIO
 BASE_URL = "https://www.football-data.co.uk/mmz4281"
 LEAGUE_CODE = "E0"  # Premier League
 
-# 10 temporadas: 2015-16 a 2024-25
-SEASONS = ["1516", "1617", "1718", "1819", "1920", "2021", "2122", "2223", "2324", "2425"]
+# 10 temporadas: 2016-17 a 2025-26
+SEASONS = ["1617", "1718", "1819", "1920", "2021", "2122", "2223", "2324", "2425", "2526"]
 
 COLS = ["Date", "HomeTeam", "AwayTeam", "FTHG", "FTAG", "FTR", "HC", "AC", "B365H", "B365D", "B365A"]
 

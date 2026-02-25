@@ -3,7 +3,7 @@ from infrastructure.persistence.mongo_db_repository import MongoDBRepository
 from infrastructure.persistence.mongo_config import MongoConfig
 
 COLLECTION = "historical_matches"
-CURRENT_SEASON = SEASONS[-1]  # temporada más reciente, ej: "2425"
+CURRENT_SEASON = SEASONS[-1]  # temporada más reciente, ej: "2526"
 
 
 class FootballDataService:
