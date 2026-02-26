@@ -5,6 +5,7 @@ from models.poisson.predictor import implied_prob, detect_value, devig, VALUE_TH
 from models.xgboost.feature_engineer import build_match_features
 from models.xgboost.model import XGBoostResult
 from infrastructure.telegram.telegram_notifier import TelegramNotifier
+from infrastructure.gemini.gemini_client import generate_match_explanation
 from application.football_data_org.h2h_service import H2HService
 
 RESULT_KEYS = ["home_win", "draw", "away_win"]
@@ -88,13 +89,19 @@ def run(db_name: str):
                 value_bets.append((label, prob, odd, fair_p))
 
         if value_bets:
-            explanation = _generate_explanation(home, away, max(pred, key=pred.get), X, h2h_doc)
+            winner_key = max(pred, key=pred.get)
+            stats = {col: X[col].iloc[0] for col in X.columns}
+            h2h_summary = h2h_doc.get("summary") if h2h_doc else None
+            explanation = generate_match_explanation(home, away, winner_key, stats, h2h_summary)
+            if not explanation:
+                explanation = _generate_explanation(home, away, winner_key, X, h2h_doc)
             _notify(notifier, match["partido"], match.get("fecha_evento", ""), match.get("liga", ""), pred, labels, explanation, odds, fair)
 
 
 def _generate_explanation(home: str, away: str, winner_key: str, X, h2h_doc: dict | None) -> str:
     reasons = []
 
+    # Forma general (últimos 5 sin importar rol)
     home_pts = X["home_pts5"].iloc[0]
     away_pts = X["away_pts5"].iloc[0]
     home_gf  = X["home_gf5"].iloc[0]
@@ -102,22 +109,80 @@ def _generate_explanation(home: str, away: str, winner_key: str, X, h2h_doc: dic
     home_ga  = X["home_ga5"].iloc[0]
     away_ga  = X["away_ga5"].iloc[0]
 
+    # Forma específica por rol (local/visitante)
+    home_role_pts = X["home_role_pts5"].iloc[0]
+    away_role_pts = X["away_role_pts5"].iloc[0]
+    home_role_gf  = X["home_role_gf5"].iloc[0]
+    away_role_gf  = X["away_role_gf5"].iloc[0]
+    home_role_ga  = X["home_role_ga5"].iloc[0]
+    away_role_ga  = X["away_role_ga5"].iloc[0]
+
     if winner_key == "home_win":
-        if home_pts > away_pts + 0.3:
-            reasons.append(f"{home} llega con mejor forma ({home_pts:.1f} pts/partido vs {away_pts:.1f} de {away})")
-        if home_gf > away_ga + 0.2:
-            reasons.append(f"su ataque ({home_gf:.1f} goles/partido) supera la defensa visitante ({away_ga:.1f} concedidos)")
+        # Forma por rol primero; forma general como respaldo
+        if home_role_pts > away_role_pts + 0.3:
+            reasons.append(
+                f"{home} suma {home_role_pts:.1f} pts/partido como local, "
+                f"frente a {away_role_pts:.1f} de {away} como visitante"
+            )
+        elif home_pts > away_pts + 0.3:
+            reasons.append(
+                f"{home} llega con mejor forma general "
+                f"({home_pts:.1f} pts/partido vs {away_pts:.1f} de {away})"
+            )
+
+        # Ataque local vs defensa visitante del rival
+        if home_role_gf > away_role_ga + 0.2:
+            reasons.append(
+                f"su ataque en casa ({home_role_gf:.1f} goles/partido) "
+                f"supera la defensa de {away} fuera ({away_role_ga:.1f} concedidos)"
+            )
+        elif home_gf > away_ga + 0.2:
+            reasons.append(
+                f"su ataque ({home_gf:.1f} goles/partido) "
+                f"supera la defensa visitante ({away_ga:.1f} concedidos)"
+            )
 
     elif winner_key == "away_win":
-        if away_pts > home_pts + 0.3:
-            reasons.append(f"{away} llega con mejor forma ({away_pts:.1f} pts/partido vs {home_pts:.1f} de {home})")
-        if away_gf > home_ga + 0.2:
-            reasons.append(f"su ataque ({away_gf:.1f} goles/partido) supera la defensa local ({home_ga:.1f} concedidos)")
+        # Forma por rol primero; forma general como respaldo
+        if away_role_pts > home_role_pts + 0.3:
+            reasons.append(
+                f"{away} suma {away_role_pts:.1f} pts/partido como visitante, "
+                f"frente a {home_role_pts:.1f} de {home} como local"
+            )
+        elif away_pts > home_pts + 0.3:
+            reasons.append(
+                f"{away} llega con mejor forma general "
+                f"({away_pts:.1f} pts/partido vs {home_pts:.1f} de {home})"
+            )
+
+        # Ataque visitante vs defensa local del rival
+        if away_role_gf > home_role_ga + 0.2:
+            reasons.append(
+                f"su ataque fuera ({away_role_gf:.1f} goles/partido) "
+                f"supera la defensa de {home} en casa ({home_role_ga:.1f} concedidos)"
+            )
+        elif away_gf > home_ga + 0.2:
+            reasons.append(
+                f"su ataque ({away_gf:.1f} goles/partido) "
+                f"supera la defensa local ({home_ga:.1f} concedidos)"
+            )
 
     else:  # draw
-        if abs(home_pts - away_pts) <= 0.4:
-            reasons.append(f"ambos equipos presentan una forma muy similar ({home_pts:.1f} vs {away_pts:.1f} pts/partido)")
-        if (home_gf + away_gf) / 2 < 1.4:
+        if abs(home_role_pts - away_role_pts) <= 0.4:
+            reasons.append(
+                f"ambos equipos muestran una forma muy pareja en su rol "
+                f"({home_role_pts:.1f} vs {away_role_pts:.1f} pts/partido)"
+            )
+        elif abs(home_pts - away_pts) <= 0.4:
+            reasons.append(
+                f"ambos equipos presentan una forma muy similar "
+                f"({home_pts:.1f} vs {away_pts:.1f} pts/partido)"
+            )
+
+        avg_role_gf = (home_role_gf + away_role_gf) / 2
+        if avg_role_gf < 1.4:
+            reasons.append("sus encuentros en estos roles suelen ser disputados y de pocos goles")
+        elif (home_gf + away_gf) / 2 < 1.4:
             reasons.append("sus encuentros suelen ser disputados y de pocos goles")
 
     # H2H

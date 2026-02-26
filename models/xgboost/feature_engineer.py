@@ -69,6 +69,39 @@ def _team_stats(team: str, before_date, df: pd.DataFrame, n: int = WINDOW) -> di
     }
 
 
+def _role_stats(team: str, role: str, before_date, df: pd.DataFrame, n: int = WINDOW) -> dict:
+    """
+    Stats de un equipo en sus últimos N partidos jugados específicamente como
+    local ('home') o visitante ('away') antes de before_date.
+    A diferencia de _team_stats, no mezcla ambos roles: busca exactamente N
+    partidos en ese rol concreto.
+    """
+    if role == "home":
+        mask = (df["HomeTeam"] == team) & (df["Date"] < before_date)
+    else:
+        mask = (df["AwayTeam"] == team) & (df["Date"] < before_date)
+
+    recent = df[mask].sort_values("Date").tail(n)
+
+    if recent.empty:
+        return {"role_gf5": np.nan, "role_ga5": np.nan, "role_pts5": np.nan}
+
+    is_home = role == "home"
+    gf, ga, pts = [], [], []
+    for _, row in recent.iterrows():
+        scored   = row["FTHG"] if is_home else row["FTAG"]
+        conceded = row["FTAG"] if is_home else row["FTHG"]
+        gf.append(scored)
+        ga.append(conceded)
+        pts.append(_points(row["FTR"], is_home))
+
+    return {
+        "role_gf5":  np.mean(gf),
+        "role_ga5":  np.mean(ga),
+        "role_pts5": np.mean(pts),
+    }
+
+
 def _h2h_stats(home: str, away: str, before_date, df: pd.DataFrame, n: int = H2H_WINDOW) -> dict:
     """
     Calcula stats H2H entre home y away en sus últimos N enfrentamientos antes de before_date.
@@ -171,9 +204,11 @@ def build_features(df: pd.DataFrame) -> tuple[pd.DataFrame, pd.Series]:
         away = match["AwayTeam"]
         date = match["Date"]
 
-        hs  = _team_stats(home, date, df)
-        aws = _team_stats(away, date, df)
-        h2h = _h2h_stats(home, away, date, df)
+        hs      = _team_stats(home, date, df)
+        aws     = _team_stats(away, date, df)
+        hs_rol  = _role_stats(home, "home", date, df)
+        aws_rol = _role_stats(away, "away", date, df)
+        h2h     = _h2h_stats(home, away, date, df)
 
         # Saltar si hay demasiados NaN (equipos sin historial suficiente)
         if pd.isna(hs["gf5"]) or pd.isna(aws["gf5"]):
@@ -185,11 +220,19 @@ def build_features(df: pd.DataFrame) -> tuple[pd.DataFrame, pd.Series]:
             "home_pts5":     hs["pts5"],
             "home_home_gf5": hs["home_gf5"] if not pd.isna(hs["home_gf5"]) else hs["gf5"],
             "home_home_ga5": hs["home_ga5"] if not pd.isna(hs["home_ga5"]) else hs["ga5"],
+            # Últimos N partidos jugados específicamente como local
+            "home_role_gf5":  hs_rol["role_gf5"]  if not pd.isna(hs_rol["role_gf5"])  else hs["gf5"],
+            "home_role_ga5":  hs_rol["role_ga5"]  if not pd.isna(hs_rol["role_ga5"])  else hs["ga5"],
+            "home_role_pts5": hs_rol["role_pts5"] if not pd.isna(hs_rol["role_pts5"]) else hs["pts5"],
             "away_gf5":      aws["gf5"],
             "away_ga5":      aws["ga5"],
             "away_pts5":     aws["pts5"],
             "away_away_gf5": aws["away_gf5"] if not pd.isna(aws["away_gf5"]) else aws["gf5"],
             "away_away_ga5": aws["away_ga5"] if not pd.isna(aws["away_ga5"]) else aws["ga5"],
+            # Últimos N partidos jugados específicamente como visitante
+            "away_role_gf5":  aws_rol["role_gf5"]  if not pd.isna(aws_rol["role_gf5"])  else aws["gf5"],
+            "away_role_ga5":  aws_rol["role_ga5"]  if not pd.isna(aws_rol["role_ga5"])  else aws["ga5"],
+            "away_role_pts5": aws_rol["role_pts5"] if not pd.isna(aws_rol["role_pts5"]) else aws["pts5"],
             "odd_h":         float(match["B365H"]),
             "odd_d":         float(match["B365D"]),
             "odd_a":         float(match["B365A"]),
@@ -226,21 +269,32 @@ def build_match_features(
     df_history["Date"] = pd.to_datetime(df_history["Date"], format="mixed", dayfirst=True)
     future_date = df_history["Date"].max() + pd.Timedelta(days=1)
 
-    hs  = _team_stats(home, future_date, df_history)
-    aws = _team_stats(away, future_date, df_history)
-    h2h = _h2h_from_api_doc(home, h2h_doc)
+    hs      = _team_stats(home, future_date, df_history)
+    aws     = _team_stats(away, future_date, df_history)
+    hs_rol  = _role_stats(home, "home", future_date, df_history)
+    aws_rol = _role_stats(away, "away", future_date, df_history)
+    h2h     = _h2h_from_api_doc(home, h2h_doc)
+
+    def _v(val, fallback):
+        return val if not pd.isna(val) else fallback
 
     return pd.DataFrame([{
-        "home_gf5":      hs["gf5"]  if not pd.isna(hs["gf5"])  else 1.5,
-        "home_ga5":      hs["ga5"]  if not pd.isna(hs["ga5"])  else 1.5,
-        "home_pts5":     hs["pts5"] if not pd.isna(hs["pts5"]) else 1.0,
-        "home_home_gf5": hs["home_gf5"] if not pd.isna(hs["home_gf5"]) else hs.get("gf5", 1.5),
-        "home_home_ga5": hs["home_ga5"] if not pd.isna(hs["home_ga5"]) else hs.get("ga5", 1.5),
-        "away_gf5":      aws["gf5"]  if not pd.isna(aws["gf5"])  else 1.5,
-        "away_ga5":      aws["ga5"]  if not pd.isna(aws["ga5"])  else 1.5,
-        "away_pts5":     aws["pts5"] if not pd.isna(aws["pts5"]) else 1.0,
-        "away_away_gf5": aws["away_gf5"] if not pd.isna(aws["away_gf5"]) else aws.get("gf5", 1.5),
-        "away_away_ga5": aws["away_ga5"] if not pd.isna(aws["away_ga5"]) else aws.get("ga5", 1.5),
+        "home_gf5":       _v(hs["gf5"],   1.5),
+        "home_ga5":       _v(hs["ga5"],   1.5),
+        "home_pts5":      _v(hs["pts5"],  1.0),
+        "home_home_gf5":  _v(hs["home_gf5"], _v(hs["gf5"], 1.5)),
+        "home_home_ga5":  _v(hs["home_ga5"], _v(hs["ga5"], 1.5)),
+        "home_role_gf5":  _v(hs_rol["role_gf5"],  _v(hs["gf5"], 1.5)),
+        "home_role_ga5":  _v(hs_rol["role_ga5"],  _v(hs["ga5"], 1.5)),
+        "home_role_pts5": _v(hs_rol["role_pts5"], _v(hs["pts5"], 1.0)),
+        "away_gf5":       _v(aws["gf5"],  1.5),
+        "away_ga5":       _v(aws["ga5"],  1.5),
+        "away_pts5":      _v(aws["pts5"], 1.0),
+        "away_away_gf5":  _v(aws["away_gf5"], _v(aws["gf5"], 1.5)),
+        "away_away_ga5":  _v(aws["away_ga5"], _v(aws["ga5"], 1.5)),
+        "away_role_gf5":  _v(aws_rol["role_gf5"],  _v(aws["gf5"], 1.5)),
+        "away_role_ga5":  _v(aws_rol["role_ga5"],  _v(aws["ga5"], 1.5)),
+        "away_role_pts5": _v(aws_rol["role_pts5"], _v(aws["pts5"], 1.0)),
         "odd_h": odd_h if odd_h else 2.5,
         "odd_d": odd_d if odd_d else 3.3,
         "odd_a": odd_a if odd_a else 2.5,
