@@ -1,5 +1,5 @@
 import numpy as np
-from sklearn.model_selection import train_test_split
+import pandas as pd
 
 from infrastructure.football_data.football_data_client import SEASONS
 from models.poisson.data_loader import load_historical_matches
@@ -12,6 +12,10 @@ DB_NAME = "premier_league"
 # cada temporada anterior se multiplica por este factor.
 # 0.8 → la temporada más antigua tiene ~0.8^9 ≈ 0.13 del peso actual.
 SEASON_DECAY = 0.8
+
+# Split temporal: 70% train · 10% calibración · 20% test
+TRAIN_RATIO = 0.70
+CAL_RATIO   = 0.10
 
 
 def compute_weights(seasons: "pd.Series") -> np.ndarray:
@@ -32,17 +36,28 @@ def main():
 
     weights = compute_weights(seasons)
 
-    # Split temporal (no aleatorio) para evitar data leakage
-    X_train, X_test, y_train, y_test, w_train, _ = train_test_split(
-        X, y, weights, test_size=0.2, shuffle=False
-    )
+    # Split temporal (sin shuffle para evitar data leakage)
+    n       = len(X)
+    n_train = int(n * TRAIN_RATIO)
+    n_cal   = int(n * (TRAIN_RATIO + CAL_RATIO))
+
+    X_train  = X.iloc[:n_train]
+    y_train  = y.iloc[:n_train]
+    w_train  = weights[:n_train]
+
+    X_cal    = X.iloc[n_train:n_cal]
+    y_cal    = y.iloc[n_train:n_cal]
+
+    X_test   = X.iloc[n_cal:]
+    y_test   = y.iloc[n_cal:]
 
     print(f"\n🏋️  Entrenando XGBoost ({len(X_train)} partidos, decay={SEASON_DECAY})...")
     print(f"   Peso temporada más antigua ({SEASONS[0]}): {SEASON_DECAY**(len(SEASONS)-1):.3f}")
     print(f"   Peso temporada actual      ({SEASONS[-1]}): 1.000")
+    print(f"   Calibración: {len(X_cal)} partidos   Test: {len(X_test)} partidos")
 
     model = XGBoostResult()
-    model.fit(X_train, y_train, sample_weight=w_train)
+    model.fit(X_train, y_train, sample_weight=w_train, X_cal=X_cal, y_cal=y_cal)
 
     print(f"\n📊 Evaluación en test ({len(X_test)} partidos):")
     model.evaluate(X_test, y_test)

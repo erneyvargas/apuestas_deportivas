@@ -17,10 +17,15 @@ class TelegramNotifier:
         if not self.enabled:
             return
         try:
-            requests.post(
+            response = requests.post(
                 self.BASE_URL.format(token=self.token),
                 json={"chat_id": self.chat_id, "text": message, "parse_mode": "HTML"},
                 timeout=10,
             )
+            data = response.json()
+            if data.get("ok"):
+                print(f"📲 Telegram: mensaje enviado")
+            else:
+                print(f"⚠️  Telegram rechazó el mensaje: {data.get('description')}")
         except Exception as e:
             print(f"⚠️  Telegram error: {e}")
