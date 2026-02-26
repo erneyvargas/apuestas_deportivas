@@ -5,6 +5,7 @@ from models.poisson.predictor import implied_prob, detect_value
 from models.xgboost.feature_engineer import build_match_features
 from models.xgboost.model import XGBoostResult
 from infrastructure.telegram.telegram_notifier import TelegramNotifier
+from application.football_data_org.h2h_service import H2HService
 
 RESULT_KEYS = ["home_win", "draw", "away_win"]
 
@@ -38,6 +39,7 @@ def run(db_name: str):
 
     df_matches = load_matches(db_name)
     notifier = TelegramNotifier()
+    h2h_service = H2HService(db_name)
 
     print(f"\n{'='*65}")
     print(f"  XGBOOST 1X2 — {db_name.upper().replace('_', ' ')}")
@@ -51,7 +53,8 @@ def run(db_name: str):
         odd_x = match.get("Resultado Final X")
         odd_2 = match.get("Resultado Final 2")
 
-        X = build_match_features(home, away, odd_1, odd_x, odd_2, df_history)
+        h2h_doc = h2h_service.get_h2h(int(match["id"]), home, away)
+        X = build_match_features(home, away, odd_1, odd_x, odd_2, df_history, h2h_doc)
         pred = model.predict(X)
 
         labels = {
