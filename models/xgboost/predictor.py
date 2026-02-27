@@ -1,11 +1,11 @@
 from datetime import datetime, timezone
 
-from models.poisson.data_loader import load_historical_matches, load_matches
-from models.poisson.predictor import implied_prob, detect_value, devig, VALUE_THRESHOLD
+from models.xgboost.data_loader import load_historical_matches, load_matches
+from models.xgboost.odds_utils import implied_prob, detect_value, devig, VALUE_THRESHOLD
 from models.xgboost.feature_engineer import build_match_features
 from models.xgboost.model import XGBoostResult
 from infrastructure.telegram.telegram_notifier import TelegramNotifier
-from infrastructure.gemini.gemini_client import generate_match_explanation
+from infrastructure.groq.groq_client import generate_match_explanation
 from application.football_data_org.h2h_service import H2HService
 
 RESULT_KEYS = ["home_win", "draw", "away_win"]
@@ -39,6 +39,8 @@ def run(db_name: str):
         return
 
     df_matches = load_matches(db_name)
+    if "fecha_evento" in df_matches.columns:
+        df_matches = df_matches.sort_values("fecha_evento").reset_index(drop=True)
     notifier = TelegramNotifier()
     h2h_service = H2HService(db_name)
 
@@ -88,14 +90,13 @@ def run(db_name: str):
             if is_value:
                 value_bets.append((label, prob, odd, fair_p))
 
-        if value_bets:
-            winner_key = max(pred, key=pred.get)
-            stats = {col: X[col].iloc[0] for col in X.columns}
-            h2h_summary = h2h_doc.get("summary") if h2h_doc else None
-            explanation = generate_match_explanation(home, away, winner_key, stats, h2h_summary)
-            if not explanation:
-                explanation = _generate_explanation(home, away, winner_key, X, h2h_doc)
-            _notify(notifier, match["partido"], match.get("fecha_evento", ""), match.get("liga", ""), pred, labels, explanation, odds, fair)
+        winner_key = max(pred, key=pred.get)
+        stats = {col: X[col].iloc[0] for col in X.columns}
+        h2h_summary = h2h_doc.get("summary") if h2h_doc else None
+        explanation = generate_match_explanation(home, away, winner_key, stats, h2h_summary)
+        if not explanation:
+            explanation = _generate_explanation(home, away, winner_key, X, h2h_doc)
+        _notify(notifier, match["partido"], match.get("fecha_evento", ""), match.get("liga", ""), pred, labels, explanation, odds, fair, value_bets)
 
 
 def _generate_explanation(home: str, away: str, winner_key: str, X, h2h_doc: dict | None) -> str:
@@ -209,7 +210,7 @@ def _generate_explanation(home: str, away: str, winner_key: str, X, h2h_doc: dic
     return " · ".join(reasons)
 
 
-def _notify(notifier: TelegramNotifier, partido: str, fecha: str, liga: str, pred: dict, labels: dict, explanation: str, odds: dict, fair: dict):
+def _notify(notifier: TelegramNotifier, partido: str, fecha: str, liga: str, pred: dict, labels: dict, explanation: str, odds: dict, fair: dict, value_bets: list = None):
     sep = "━━━━━━━━━━━━━━━━━━━━"
 
     winner_key = max(pred, key=pred.get)
@@ -217,8 +218,10 @@ def _notify(notifier: TelegramNotifier, partido: str, fecha: str, liga: str, pre
     winner_prob = pred[winner_key] * 100
     winner_emoji = "🏠" if winner_key == "home_win" else ("✈️" if winner_key == "away_win" else "🤝")
 
+    header = "🎯 <b>VALUE BET DETECTADO</b>" if value_bets else "📋 <b>ANÁLISIS DE PARTIDO</b>"
+
     lines = [
-        f"🎯 <b>VALUE BET DETECTADO</b>",
+        header,
         f"",
         f"⚽ <b>{partido}</b>",
         f"📅 {_format_date(fecha)}",

@@ -2,7 +2,7 @@ import numpy as np
 import pandas as pd
 
 from infrastructure.football_data.football_data_client import SEASONS
-from models.poisson.data_loader import load_historical_matches
+from models.xgboost.data_loader import load_historical_matches
 from models.xgboost.feature_engineer import build_features
 from models.xgboost.model import XGBoostResult
 
