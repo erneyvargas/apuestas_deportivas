@@ -95,7 +95,7 @@ def run(db_name: str, api_football_id: int | None = None):
         fecha = match.get("fecha_evento", "")
         if lineup_service and fecha:
             mins = _minutes_until(fecha)
-            if mins is not None and 0 < mins <= 30:
+            if mins is not None and 0 < mins <= 75:
                 lineup = lineup_service.get_lineup_strength(home, away, fecha)
                 if lineup:
                     pred = _adjust_for_lineups(pred, lineup)
