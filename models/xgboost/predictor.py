@@ -210,40 +210,56 @@ def _generate_explanation(home: str, away: str, winner_key: str, X, h2h_doc: dic
     return " · ".join(reasons)
 
 
+def _bar(prob: float, width: int = 10) -> str:
+    filled = round(prob * width)
+    return "█" * filled + "░" * (width - filled)
+
+
 def _notify(notifier: TelegramNotifier, partido: str, fecha: str, liga: str, pred: dict, labels: dict, explanation: str, odds: dict, fair: dict, value_bets: list = None):
-    sep = "━━━━━━━━━━━━━━━━━━━━"
+    sep = "━━━━━━━━━━━━━━━━━━━━━━━━"
+    is_value = bool(value_bets)
 
-    winner_key = max(pred, key=pred.get)
-    winner_label = labels[winner_key]
-    winner_prob = pred[winner_key] * 100
-    winner_emoji = "🏠" if winner_key == "home_win" else ("✈️" if winner_key == "away_win" else "🤝")
+    header = "🔥 <b>VALUE BET</b>" if is_value else "📋 <b>Análisis</b>"
 
-    header = "🎯 <b>VALUE BET DETECTADO</b>" if value_bets else "📋 <b>ANÁLISIS DE PARTIDO</b>"
+    EMOJIS = {"home_win": "🏠", "draw": "🤝", "away_win": "✈️"}
+    vb_set = {label for label, *_ in (value_bets or [])}
 
     lines = [
         header,
-        f"",
+        "",
         f"⚽ <b>{partido}</b>",
-        f"📅 {_format_date(fecha)}",
-        f"🏆 {liga}",
-        f"{sep}",
-        f"",
-        f"{winner_emoji} Pronóstico: <b>{winner_label}</b> ({winner_prob:.1f}%)",
-        f"",
-        f"💡 <i>{explanation}</i>"
+        f"📅 {_format_date(fecha)}  ·  {liga}",
+        sep,
     ]
-    def _prob_line(label: str, model_p: float, odd, fair_p) -> str:
-        odd_str  = f"{odd:.2f}" if odd else "N/A"
-        fair_str = f"{fair_p*100:.1f}%" if fair_p else "N/A"
-        return f"   {label}: <b>{model_p*100:.1f}%</b>  |  {odd_str} → <b>{fair_str}</b>"
+
+    for key in RESULT_KEYS:
+        label   = labels[key]
+        model_p = pred[key]
+        bar     = _bar(model_p)
+        pct     = f"{model_p*100:.0f}%"
+
+        if label in vb_set and odds[key]:
+            edge   = (model_p * odds[key] - 1) * 100
+            suffix = f"  ✅ <b>+{edge:.0f}%</b>"
+        else:
+            suffix = ""
+
+        lines.append(f"{EMOJIS[key]} {label}  {bar}  <b>{pct}</b>{suffix}")
+
+    lines.append(sep)
+
+    def _fmt_odd(o): return f"{o:.2f}" if o else "N/A"
+    def _fmt_fair(f): return f"{f*100:.0f}%" if f else "N/A"
+
+    odds_str = "  /  ".join(_fmt_odd(odds[k]) for k in RESULT_KEYS)
+    fair_str = "  /  ".join(_fmt_fair(fair[k]) for k in RESULT_KEYS)
 
     lines += [
-        f"",
-        f"{sep}",
-        f"📊 Modelo vs Betplay (sin margen):",
-        _prob_line(labels["home_win"], pred["home_win"], odds["home_win"], fair["home_win"]),
-        _prob_line("Empate",           pred["draw"],     odds["draw"],     fair["draw"]),
-        _prob_line(labels["away_win"], pred["away_win"], odds["away_win"], fair["away_win"]),
-        f"{sep}",
+        f"Cuotas  {odds_str}",
+        f"Fair    {fair_str}",
+        sep,
+        f"💡 <i>{explanation}</i>",
+        sep,
     ]
+
     notifier.send("\n".join(lines))
