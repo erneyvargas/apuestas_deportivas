@@ -9,7 +9,11 @@ class BetplayService:
         self.repository = MongoDBRepository(db_name=league_db)
 
     def save_league_odds(self):
-        """Obtiene y guarda las cuotas de la liga en la colección 'betplay'"""
+        """Obtiene y guarda las cuotas de la liga.
+
+        - 'betplay': estado actual (se reemplaza en cada ejecución, lo usa el predictor).
+        - 'betplay_odds_history': acumula todos los snapshots para analizar movimiento de cuotas.
+        """
         print(f"📌 Betplay: {self.betplay_path}")
 
         df_betplay = self.api_client.get_full_data(self.betplay_path)
@@ -17,8 +21,20 @@ class BetplayService:
             print(f"❌ No se encontraron datos para {self.betplay_path}")
             return
 
+        # Estado actual para el predictor
         self.repository.save_dataframe_to_collection(
             collection_name='betplay',
             df=df_betplay,
             clear_collection=True
+        )
+
+        # Historial acumulado de movimientos de cuotas
+        self.repository.save_dataframe_to_collection(
+            collection_name='betplay_odds_history',
+            df=df_betplay,
+            clear_collection=False
+        )
+        self.repository.ensure_index(
+            collection_name='betplay_odds_history',
+            keys=[("id", 1), ("fecha_registro", 1)]
         )

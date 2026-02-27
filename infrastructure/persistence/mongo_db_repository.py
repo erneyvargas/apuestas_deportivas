@@ -1,5 +1,5 @@
 import pandas as pd
-from typing import Tuple
+from typing import List, Tuple
 from infrastructure.persistence.mongo_config import MongoConfig
 
 
@@ -49,3 +49,10 @@ class MongoDBRepository:
             # Mensaje de error dentro del repositorio
             print(f"❌ Error guardando en '{collection_name}': {str(e)}")
             return False, 0
+
+    def ensure_index(self, collection_name: str, keys: List[Tuple[str, int]]):
+        """Crea un índice compuesto si no existe (operación idempotente)."""
+        try:
+            self.db[collection_name].create_index(keys)
+        except Exception as e:
+            print(f"⚠️ No se pudo crear índice en '{collection_name}': {e}")
