@@ -13,7 +13,6 @@ from models.xgboost import predictor as xgboost_predictor
 scheduler = BackgroundScheduler()
 last_run: dict = {
     "betplay": {"time": None, "status": None},
-    "fbref":   {"time": None, "status": None},
 }
 
 
@@ -55,7 +54,6 @@ def run_fbref():
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     scheduler.add_job(run_betplay, 'interval', minutes=10, id='betplay')
-    scheduler.add_job(run_fbref, 'cron', hour=6, minute=0, id='fbref')
     scheduler.start()
     yield
     scheduler.shutdown()
@@ -83,11 +81,6 @@ def trigger_betplay():
     run_betplay()
     return last_run["betplay"]
 
-
-@app.post("/run/fbref")
-def trigger_fbref():
-    run_fbref()
-    return last_run["fbref"]
 
 
 if __name__ == "__main__":
