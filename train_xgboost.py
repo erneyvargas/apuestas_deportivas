@@ -24,9 +24,9 @@ def compute_weights(seasons: "pd.Series") -> np.ndarray:
     return seasons.map(lambda s: SEASON_DECAY ** (max_idx - season_order.get(s, 0))).values
 
 
-def main():
-    print("📥 Cargando datos históricos...")
-    df = load_historical_matches(DB_NAME)
+def run(db_name: str):
+    print(f"📥 Cargando datos históricos ({db_name})...")
+    df = load_historical_matches(db_name)
     print(f"   {len(df)} partidos disponibles")
 
     print("⚙️  Construyendo features...")
@@ -63,6 +63,10 @@ def main():
     model.evaluate(X_test, y_test)
 
     model.save()
+
+
+def main():
+    run(DB_NAME)
 
 
 if __name__ == "__main__":

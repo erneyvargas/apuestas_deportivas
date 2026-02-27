@@ -5,14 +5,17 @@ import uvicorn
 from apscheduler.schedulers.background import BackgroundScheduler
 from fastapi import FastAPI
 
+import train_xgboost
 from application.betplay.betplay_service import BetplayService
 from application.fbref.fbref_service import FbrefService
+from application.football_data.football_data_service import FootballDataService
 from infrastructure.persistence.leagues_config_repository import LeaguesConfigRepository
 from models.xgboost import predictor as xgboost_predictor
 
 scheduler = BackgroundScheduler()
 last_run: dict = {
     "betplay": {"time": None, "status": None},
+    "nightly": {"time": None, "status": None},
 }
 
 
@@ -31,6 +34,21 @@ def run_betplay():
     except Exception as e:
         last_run["betplay"]["status"] = f"error: {e}"
         print(f"❌ Error en betplay/predictor: {e}")
+
+
+def run_nightly():
+    """Sincroniza la temporada actual y reentrena el modelo XGBoost por liga."""
+    last_run["nightly"]["time"] = datetime.now().isoformat()
+    try:
+        leagues = LeaguesConfigRepository().find_active()
+        for league in leagues:
+            print(f"\n🌙 Nightly — {league['name']}")
+            FootballDataService(db_name=league['league_db']).update_current_season()
+            train_xgboost.run(league['league_db'])
+        last_run["nightly"]["status"] = "ok"
+    except Exception as e:
+        last_run["nightly"]["status"] = f"error: {e}"
+        print(f"❌ Error en nightly: {e}")
 
 
 def run_fbref():
@@ -54,6 +72,7 @@ def run_fbref():
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     scheduler.add_job(run_betplay, 'interval', minutes=10, id='betplay')
+    scheduler.add_job(run_nightly, 'cron', hour=0, minute=0, id='nightly')
     scheduler.start()
     yield
     scheduler.shutdown()
@@ -81,6 +100,11 @@ def trigger_betplay():
     run_betplay()
     return last_run["betplay"]
 
+
+@app.post("/run/nightly")
+def trigger_nightly():
+    run_nightly()
+    return last_run["nightly"]
 
 
 if __name__ == "__main__":
