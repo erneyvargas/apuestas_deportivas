@@ -27,7 +27,7 @@ def run_betplay():
                 league_db=league['league_db'],
                 betplay_path=league['betplay_path']
             ).save_league_odds()
-            xgboost_predictor.run(league['league_db'])
+            xgboost_predictor.run(league['league_db'], league.get('api_football_id'))
         last_run["betplay"]["status"] = "ok"
     except Exception as e:
         last_run["betplay"]["status"] = f"error: {e}"

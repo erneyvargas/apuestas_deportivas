@@ -7,6 +7,7 @@ from models.xgboost.model import XGBoostResult
 from infrastructure.telegram.telegram_notifier import TelegramNotifier
 from infrastructure.groq.groq_client import generate_match_explanation
 from application.football_data_org.h2h_service import H2HService
+from application.lineup.lineup_service import LineupService
 
 RESULT_KEYS = ["home_win", "draw", "away_win"]
 
@@ -29,7 +30,31 @@ def _format_date(iso_date: str) -> str:
         return iso_date
 
 
-def run(db_name: str):
+def _minutes_until(fecha: str) -> float | None:
+    try:
+        dt = datetime.fromisoformat(fecha.replace("Z", "+00:00"))
+        return (dt - datetime.now(timezone.utc)).total_seconds() / 60
+    except Exception:
+        return None
+
+
+def _adjust_for_lineups(pred: dict, lineup: dict) -> dict:
+    """Multiplica home_win por fortaleza local y away_win por fortaleza visitante,
+    luego renormaliza las tres probabilidades a suma 1.
+    El empate no se ajusta directamente: absorbe la diferencia al renormalizar.
+    """
+    h = lineup["home_strength"]
+    a = lineup["away_strength"]
+    adjusted = {
+        "home_win": pred["home_win"] * h,
+        "draw":     pred["draw"],
+        "away_win": pred["away_win"] * a,
+    }
+    total = sum(adjusted.values())
+    return {k: round(v / total, 4) for k, v in adjusted.items()}
+
+
+def run(db_name: str, api_football_id: int | None = None):
     try:
         df_history = load_historical_matches(db_name)
     except RuntimeError as e:
@@ -47,6 +72,7 @@ def run(db_name: str):
         df_matches = df_matches.sort_values("fecha_evento").reset_index(drop=True)
     notifier = TelegramNotifier()
     h2h_service = H2HService(db_name)
+    lineup_service = LineupService(db_name, api_football_id) if api_football_id else None
 
     print(f"\n{'='*65}")
     print(f"  XGBOOST 1X2 — {db_name.upper().replace('_', ' ')}")
@@ -63,6 +89,17 @@ def run(db_name: str):
         h2h_doc = h2h_service.get_h2h(int(match["id"]), home, away)
         X = build_match_features(home, away, odd_1, odd_x, odd_2, df_history, h2h_doc)
         pred = model.predict(X)
+
+        # Ajuste por alineación (solo ≤30 min antes del partido)
+        lineup = None
+        fecha = match.get("fecha_evento", "")
+        if lineup_service and fecha:
+            mins = _minutes_until(fecha)
+            if mins is not None and 0 < mins <= 30:
+                lineup = lineup_service.get_lineup_strength(home, away, fecha)
+                if lineup:
+                    pred = _adjust_for_lineups(pred, lineup)
+                    print(f"   🧩 Fortaleza: 🏠 {lineup['home_strength']:.0%}  ✈️ {lineup['away_strength']:.0%}")
 
         labels = {
             "home_win": home,
@@ -103,7 +140,7 @@ def run(db_name: str):
         explanation = generate_match_explanation(home, away, winner_key, stats, h2h_summary)
         if not explanation:
             explanation = _generate_explanation(home, away, winner_key, X, h2h_doc)
-        _notify(notifier, match["partido"], match.get("fecha_evento", ""), match.get("liga", ""), pred, labels, explanation, odds, fair, value_bets)
+        _notify(notifier, match["partido"], match.get("fecha_evento", ""), match.get("liga", ""), pred, labels, explanation, odds, fair, value_bets, lineup)
 
 
 def _generate_explanation(home: str, away: str, winner_key: str, X, h2h_doc: dict | None) -> str:
@@ -222,7 +259,7 @@ def _bar(prob: float, width: int = 10) -> str:
     return "█" * filled + "░" * (width - filled)
 
 
-def _notify(notifier: TelegramNotifier, partido: str, fecha: str, liga: str, pred: dict, labels: dict, explanation: str, odds: dict, fair: dict, value_bets: list = None):
+def _notify(notifier: TelegramNotifier, partido: str, fecha: str, liga: str, pred: dict, labels: dict, explanation: str, odds: dict, fair: dict, value_bets: list = None, lineup: dict = None):
     sep = "━━━━━━━━━━━━━━━━━━━━━━━━"
     is_value = bool(value_bets)
 
@@ -238,6 +275,18 @@ def _notify(notifier: TelegramNotifier, partido: str, fecha: str, liga: str, pre
         f"📅 {_format_date(fecha)}  ·  {liga}",
         sep,
     ]
+
+    if lineup:
+        h_pct   = f"{lineup['home_strength']*100:.0f}%"
+        a_pct   = f"{lineup['away_strength']*100:.0f}%"
+        h_names = "  ·  ".join(lineup["home_xi"][:5]) + ("..." if len(lineup["home_xi"]) > 5 else "")
+        a_names = "  ·  ".join(lineup["away_xi"][:5]) + ("..." if len(lineup["away_xi"]) > 5 else "")
+        lines += [
+            f"🧩 <b>Alineaciones</b>  —  🏠 {h_pct}  ✈️ {a_pct}",
+            f"🏠 {h_names}",
+            f"✈️  {a_names}",
+            sep,
+        ]
 
     for key in RESULT_KEYS:
         label   = labels[key]
