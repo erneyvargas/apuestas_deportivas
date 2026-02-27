@@ -1,4 +1,4 @@
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 
 from models.xgboost.data_loader import load_historical_matches, load_matches
 from models.xgboost.odds_utils import implied_prob, detect_value, devig, VALUE_THRESHOLD
@@ -15,12 +15,16 @@ MONTHS_ES = ["", "Ene", "Feb", "Mar", "Abr", "May", "Jun",
              "Jul", "Ago", "Sep", "Oct", "Nov", "Dic"]
 
 
+COL_OFFSET = timedelta(hours=-5)
+
+
 def _format_date(iso_date: str) -> str:
     try:
         dt = datetime.fromisoformat(iso_date.replace("Z", "+00:00"))
+        dt = dt + COL_OFFSET
         day = DAYS_ES[dt.weekday()]
         month = MONTHS_ES[dt.month]
-        return f"{day} {dt.day} {month} · {dt.strftime('%H:%M')} UTC"
+        return f"{day} {dt.day} {month} · {dt.strftime('%H:%M')} Col"
     except Exception:
         return iso_date
 
