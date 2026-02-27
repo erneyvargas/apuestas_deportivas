@@ -265,8 +265,9 @@ def build_match_features(
     Args:
         h2h_doc: Documento H2H de MongoDB (de H2HService). Si es None usa valores por defecto.
     """
-    df_history = df_history.copy()
-    df_history["Date"] = pd.to_datetime(df_history["Date"], format="mixed", dayfirst=True)
+    if not pd.api.types.is_datetime64_any_dtype(df_history["Date"]):
+        df_history = df_history.copy()
+        df_history["Date"] = pd.to_datetime(df_history["Date"], format="mixed", dayfirst=True)
     future_date = df_history["Date"].max() + pd.Timedelta(days=1)
 
     hs      = _team_stats(home, future_date, df_history)

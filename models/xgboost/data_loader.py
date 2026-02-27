@@ -45,6 +45,7 @@ def load_historical_matches(db_name: str) -> pd.DataFrame:
     for col in ["HomeTeam", "AwayTeam"]:
         df[col] = df[col].apply(_normalize_fd_team)
 
+    df["Date"] = pd.to_datetime(df["Date"], format="mixed", dayfirst=True)
     return df
 
 

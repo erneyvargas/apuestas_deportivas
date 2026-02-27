@@ -1,3 +1,4 @@
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime
 
 import pandas as pd
@@ -55,23 +56,16 @@ class BetplayAPIClient:
             lista_partidos.append(dicc_partido)
 
         df_partidos = pd.DataFrame(lista_partidos)
-        df_equipos_marcan = self.get_data_event_by_category(path, '11942')
-        df_doble_oportunidad = self.get_data_event_by_category(path, '12220')
-        df_primer_tiempo = self.get_data_event_by_category(path, '11927')
-        df_sin_empate = self.get_data_event_by_category(path, '11929')
-        df_handicap_asiatico = self.get_data_event_by_category(path, '12319')
-        df_goles_equipo_local = self.get_data_event_by_category(path, '11930')
-        df_goles_equipo_visitante = self.get_data_event_by_category(path, '11931')
-        df_corners = self.get_data_event_by_category(path, '19260')
 
-        df_resultado = df_partidos.merge(df_equipos_marcan)
-        df_resultado = df_resultado.merge(df_doble_oportunidad)
-        df_resultado = df_resultado.merge(df_primer_tiempo)
-        df_resultado = df_resultado.merge(df_sin_empate)
-        df_resultado = df_resultado.merge(df_handicap_asiatico)
-        df_resultado = df_resultado.merge(df_goles_equipo_local)
-        df_resultado = df_resultado.merge(df_goles_equipo_visitante)
-        df_resultado = df_resultado.merge(df_corners)
+        category_ids = ['11942', '12220', '11927', '11929', '12319', '11930', '11931', '19260']
+        with ThreadPoolExecutor(max_workers=len(category_ids)) as executor:
+            futures = {cat: executor.submit(self.get_data_event_by_category, path, cat)
+                       for cat in category_ids}
+            category_dfs = {cat: future.result() for cat, future in futures.items()}
+
+        df_resultado = df_partidos
+        for cat in category_ids:
+            df_resultado = df_resultado.merge(category_dfs[cat])
 
         return df_resultado
 
