@@ -91,8 +91,11 @@ def run(db_name: str):
             fair_str = f"{fair_p*100:.1f}%" if fair_p else "  N/A"
             print(f"   {label:30s}  {prob*100:>6.1f}%  {odd_str:>6}  {fair_str:>6}  {value}")
 
-            if is_value:
+            if is_value and odd and odd > 1.6:
                 value_bets.append((label, prob, odd, fair_p))
+
+        if not value_bets:
+            continue
 
         winner_key = max(pred, key=pred.get)
         stats = {col: X[col].iloc[0] for col in X.columns}
