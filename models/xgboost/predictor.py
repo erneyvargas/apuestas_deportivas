@@ -1,3 +1,4 @@
+import logging
 from datetime import datetime, timezone, timedelta
 
 from models.xgboost.data_loader import load_historical_matches, load_matches
@@ -9,12 +10,13 @@ from infrastructure.groq.groq_client import generate_match_explanation
 from application.football_data_org.h2h_service import H2HService
 from application.lineup.lineup_service import LineupService
 
+logger = logging.getLogger(__name__)
+
 RESULT_KEYS = ["home_win", "draw", "away_win"]
 
 DAYS_ES = ["Lun", "Mar", "Mié", "Jue", "Vie", "Sáb", "Dom"]
 MONTHS_ES = ["", "Ene", "Feb", "Mar", "Abr", "May", "Jun",
              "Jul", "Ago", "Sep", "Oct", "Nov", "Dic"]
-
 
 COL_OFFSET = timedelta(hours=-5)
 
@@ -39,10 +41,6 @@ def _minutes_until(fecha: str) -> float | None:
 
 
 def _adjust_for_lineups(pred: dict, lineup: dict) -> dict:
-    """Multiplica home_win por fortaleza local y away_win por fortaleza visitante,
-    luego renormaliza las tres probabilidades a suma 1.
-    El empate no se ajusta directamente: absorbe la diferencia al renormalizar.
-    """
     h = lineup["home_strength"]
     a = lineup["away_strength"]
     adjusted = {
@@ -55,28 +53,35 @@ def _adjust_for_lineups(pred: dict, lineup: dict) -> dict:
 
 
 def run(db_name: str, api_football_id: int | None = None):
+    logger.info("=== Predictor XGBoost — %s ===", db_name)
+
     try:
         df_history = load_historical_matches(db_name)
     except RuntimeError as e:
-        print(f"\n❌ XGBoost no disponible: {e}")
+        logger.error("XGBoost no disponible — sin datos históricos: %s", e)
         return
 
     try:
         model = XGBoostResult().load()
     except RuntimeError as e:
-        print(f"\n❌ {e}")
+        logger.error("No se pudo cargar el modelo: %s", e)
         return
 
     df_matches = load_matches(db_name)
+    if df_matches.empty:
+        logger.warning("No hay partidos en 'betplay' para predecir (%s)", db_name)
+        return
+
     if "fecha_evento" in df_matches.columns:
         df_matches = df_matches.sort_values("fecha_evento").reset_index(drop=True)
+
+    logger.info("Partidos a evaluar: %d", len(df_matches))
+
     notifier = TelegramNotifier()
     h2h_service = H2HService(db_name)
     lineup_service = LineupService(db_name, api_football_id) if api_football_id else None
 
-    print(f"\n{'='*65}")
-    print(f"  XGBOOST 1X2 — {db_name.upper().replace('_', ' ')}")
-    print(f"{'='*65}")
+    value_bets_total = 0
 
     for _, match in df_matches.iterrows():
         home = match["home_team"]
@@ -86,50 +91,60 @@ def run(db_name: str, api_football_id: int | None = None):
         odd_x = match.get("Resultado Final X")
         odd_2 = match.get("Resultado Final 2")
 
+        logger.debug("Procesando: %s vs %s (odds: %.2f / %.2f / %.2f)",
+                     home, away,
+                     odd_1 or 0, odd_x or 0, odd_2 or 0)
+
         h2h_doc = h2h_service.get_h2h(int(match["id"]), home, away)
         X = build_match_features(home, away, odd_1, odd_x, odd_2, df_history, h2h_doc)
         pred = model.predict(X)
 
-        # Ajuste por alineación (solo ≤30 min antes del partido)
+        # Ajuste por alineación (solo ≤75 min antes del partido)
         lineup = None
         fecha = match.get("fecha_evento", "")
         if lineup_service and fecha:
             mins = _minutes_until(fecha)
             if mins is not None and 0 < mins <= 75:
+                logger.info("Buscando alineación — %s vs %s (%.0f min para el partido)",
+                            home, away, mins)
                 lineup = lineup_service.get_lineup_strength(home, away, fecha)
                 if lineup:
+                    pred_before = dict(pred)
                     pred = _adjust_for_lineups(pred, lineup)
-                    print(f"   🧩 Fortaleza: 🏠 {lineup['home_strength']:.0%}  ✈️ {lineup['away_strength']:.0%}")
+                    logger.info("Ajuste por XI — antes: H=%.1f%% D=%.1f%% A=%.1f%%  →  "
+                                "después: H=%.1f%% D=%.1f%% A=%.1f%%",
+                                pred_before["home_win"] * 100, pred_before["draw"] * 100,
+                                pred_before["away_win"] * 100,
+                                pred["home_win"] * 100, pred["draw"] * 100, pred["away_win"] * 100)
 
-        labels = {
-            "home_win": home,
-            "draw":     "Empate",
-            "away_win": away,
-        }
-        odds = {"home_win": odd_1, "draw": odd_x, "away_win": odd_2}
+        labels = {"home_win": home, "draw": "Empate", "away_win": away}
+        odds   = {"home_win": odd_1, "draw": odd_x, "away_win": odd_2}
 
-        # Probabilidades justas (sin margen de la casa)
         fair_h, fair_d, fair_a = devig(odd_1, odd_x, odd_2)
         fair = {"home_win": fair_h, "draw": fair_d, "away_win": fair_a}
 
-        print(f"\n⚽ {match['partido']}")
-        print(f"   {'Resultado':30s}  {'Modelo':>7}  {'Cuota':>6}  {'Fair%':>6}  {'Value':>5}")
-        print(f"   {'-'*57}")
+        # Log tabla de predicción
+        logger.info(
+            "%s vs %s  |  H=%.1f%%(%.2f)  D=%.1f%%(%.2f)  A=%.1f%%(%.2f)",
+            home, away,
+            pred["home_win"] * 100, odd_1 or 0,
+            pred["draw"]     * 100, odd_x or 0,
+            pred["away_win"] * 100, odd_2 or 0,
+        )
 
         value_bets = []
         for key in RESULT_KEYS:
-            label    = labels[key]
             prob     = pred[key]
-            odd      = odds[key]
             fair_p   = fair[key]
+            odd      = odds[key]
             is_value = fair_p is not None and prob - fair_p >= VALUE_THRESHOLD
-            value    = "✅" if is_value else ""
-            odd_str  = f"{odd:.2f}" if odd else "  N/A"
-            fair_str = f"{fair_p*100:.1f}%" if fair_p else "  N/A"
-            print(f"   {label:30s}  {prob*100:>6.1f}%  {odd_str:>6}  {fair_str:>6}  {value}")
-
             if is_value and odd and odd > 1.6:
-                value_bets.append((label, prob, odd, fair_p))
+                edge = (prob * odd - 1) * 100
+                logger.info("VALUE BET detectado — %s [%s]: modelo=%.1f%% fair=%.1f%% cuota=%.2f edge=+%.0f%%",
+                            match["partido"], labels[key],
+                            prob * 100, fair_p * 100, odd, edge)
+                value_bets.append((labels[key], prob, odd, fair_p))
+                value_bets_total += 1
 
         if not value_bets:
             continue
@@ -140,13 +155,16 @@ def run(db_name: str, api_football_id: int | None = None):
         explanation = generate_match_explanation(home, away, winner_key, stats, h2h_summary)
         if not explanation:
             explanation = _generate_explanation(home, away, winner_key, X, h2h_doc)
-        _notify(notifier, match["partido"], match.get("fecha_evento", ""), match.get("liga", ""), pred, labels, explanation, odds, fair, value_bets, lineup)
+        _notify(notifier, match["partido"], match.get("fecha_evento", ""), match.get("liga", ""),
+                pred, labels, explanation, odds, fair, value_bets, lineup)
+
+    logger.info("Predictor finalizado — %d value bets detectados en %d partidos",
+                value_bets_total, len(df_matches))
 
 
 def _generate_explanation(home: str, away: str, winner_key: str, X, h2h_doc: dict | None) -> str:
     reasons = []
 
-    # Forma general (últimos 5 sin importar rol)
     home_pts = X["home_pts5"].iloc[0]
     away_pts = X["away_pts5"].iloc[0]
     home_gf  = X["home_gf5"].iloc[0]
@@ -154,7 +172,6 @@ def _generate_explanation(home: str, away: str, winner_key: str, X, h2h_doc: dic
     home_ga  = X["home_ga5"].iloc[0]
     away_ga  = X["away_ga5"].iloc[0]
 
-    # Forma específica por rol (local/visitante)
     home_role_pts = X["home_role_pts5"].iloc[0]
     away_role_pts = X["away_role_pts5"].iloc[0]
     home_role_gf  = X["home_role_gf5"].iloc[0]
@@ -163,7 +180,6 @@ def _generate_explanation(home: str, away: str, winner_key: str, X, h2h_doc: dic
     away_role_ga  = X["away_role_ga5"].iloc[0]
 
     if winner_key == "home_win":
-        # Forma por rol primero; forma general como respaldo
         if home_role_pts > away_role_pts + 0.3:
             reasons.append(
                 f"{home} suma {home_role_pts:.1f} pts/partido como local, "
@@ -174,8 +190,6 @@ def _generate_explanation(home: str, away: str, winner_key: str, X, h2h_doc: dic
                 f"{home} llega con mejor forma general "
                 f"({home_pts:.1f} pts/partido vs {away_pts:.1f} de {away})"
             )
-
-        # Ataque local vs defensa visitante del rival
         if home_role_gf > away_role_ga + 0.2:
             reasons.append(
                 f"su ataque en casa ({home_role_gf:.1f} goles/partido) "
@@ -188,7 +202,6 @@ def _generate_explanation(home: str, away: str, winner_key: str, X, h2h_doc: dic
             )
 
     elif winner_key == "away_win":
-        # Forma por rol primero; forma general como respaldo
         if away_role_pts > home_role_pts + 0.3:
             reasons.append(
                 f"{away} suma {away_role_pts:.1f} pts/partido como visitante, "
@@ -199,8 +212,6 @@ def _generate_explanation(home: str, away: str, winner_key: str, X, h2h_doc: dic
                 f"{away} llega con mejor forma general "
                 f"({away_pts:.1f} pts/partido vs {home_pts:.1f} de {home})"
             )
-
-        # Ataque visitante vs defensa local del rival
         if away_role_gf > home_role_ga + 0.2:
             reasons.append(
                 f"su ataque fuera ({away_role_gf:.1f} goles/partido) "
@@ -223,14 +234,12 @@ def _generate_explanation(home: str, away: str, winner_key: str, X, h2h_doc: dic
                 f"ambos equipos presentan una forma muy similar "
                 f"({home_pts:.1f} vs {away_pts:.1f} pts/partido)"
             )
-
         avg_role_gf = (home_role_gf + away_role_gf) / 2
         if avg_role_gf < 1.4:
             reasons.append("sus encuentros en estos roles suelen ser disputados y de pocos goles")
         elif (home_gf + away_gf) / 2 < 1.4:
             reasons.append("sus encuentros suelen ser disputados y de pocos goles")
 
-    # H2H
     if h2h_doc and h2h_doc.get("matches"):
         summary = h2h_doc.get("summary", {})
         total   = summary.get("total", 0)
@@ -259,7 +268,9 @@ def _bar(prob: float, width: int = 10) -> str:
     return "█" * filled + "░" * (width - filled)
 
 
-def _notify(notifier: TelegramNotifier, partido: str, fecha: str, liga: str, pred: dict, labels: dict, explanation: str, odds: dict, fair: dict, value_bets: list = None, lineup: dict = None):
+def _notify(notifier: TelegramNotifier, partido: str, fecha: str, liga: str, pred: dict,
+            labels: dict, explanation: str, odds: dict, fair: dict,
+            value_bets: list = None, lineup: dict = None):
     sep = "━━━━━━━━━━━━━━━━━━━━━━━━"
     is_value = bool(value_bets)
 
@@ -319,3 +330,4 @@ def _notify(notifier: TelegramNotifier, partido: str, fecha: str, liga: str, pre
     ]
 
     notifier.send("\n".join(lines))
+    logger.debug("Notificación enviada para '%s'", partido)

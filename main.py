@@ -1,3 +1,5 @@
+import logging
+import time
 from contextlib import asynccontextmanager
 from datetime import datetime
 
@@ -9,8 +11,12 @@ import train_xgboost
 from application.betplay.betplay_service import BetplayService
 from application.fbref.fbref_service import FbrefService
 from application.football_data.football_data_service import FootballDataService
+from infrastructure.logging_config import setup_logging
 from infrastructure.persistence.leagues_config_repository import LeaguesConfigRepository
 from models.xgboost import predictor as xgboost_predictor
+
+setup_logging()
+logger = logging.getLogger(__name__)
 
 scheduler = BackgroundScheduler()
 last_run: dict = {
@@ -21,42 +27,52 @@ last_run: dict = {
 
 def run_betplay():
     last_run["betplay"]["time"] = datetime.now().isoformat()
+    logger.info("=== Iniciando job betplay ===")
+    t0 = time.perf_counter()
     try:
         leagues = LeaguesConfigRepository().find_active()
+        logger.info("Ligas activas: %d", len(leagues))
         for league in leagues:
-            print(f"\n🏆 Liga: {league['name']}")
+            logger.info("Procesando liga: %s", league["name"])
             BetplayService(
                 league_db=league['league_db'],
                 betplay_path=league['betplay_path']
             ).save_league_odds()
             xgboost_predictor.run(league['league_db'], league.get('api_football_id'))
+        elapsed = time.perf_counter() - t0
         last_run["betplay"]["status"] = "ok"
+        logger.info("=== Job betplay completado en %.1fs ===", elapsed)
     except Exception as e:
         last_run["betplay"]["status"] = f"error: {e}"
-        print(f"❌ Error en betplay/predictor: {e}")
+        logger.error("Job betplay falló: %s", e, exc_info=True)
 
 
 def run_nightly():
     """Sincroniza la temporada actual y reentrena el modelo XGBoost por liga."""
     last_run["nightly"]["time"] = datetime.now().isoformat()
+    logger.info("=== Iniciando job nightly ===")
+    t0 = time.perf_counter()
     try:
         leagues = LeaguesConfigRepository().find_active()
         for league in leagues:
-            print(f"\n🌙 Nightly — {league['name']}")
+            logger.info("Nightly — %s", league["name"])
             FootballDataService(db_name=league['league_db']).update_current_season()
             train_xgboost.run(league['league_db'])
+        elapsed = time.perf_counter() - t0
         last_run["nightly"]["status"] = "ok"
+        logger.info("=== Job nightly completado en %.1fs ===", elapsed)
     except Exception as e:
         last_run["nightly"]["status"] = f"error: {e}"
-        print(f"❌ Error en nightly: {e}")
+        logger.error("Job nightly falló: %s", e, exc_info=True)
 
 
 def run_fbref():
     last_run["fbref"]["time"] = datetime.now().isoformat()
+    logger.info("=== Iniciando job fbref ===")
     try:
         leagues = LeaguesConfigRepository().find_active()
         for league in leagues:
-            print(f"\n🏆 FBRef — {league['name']}")
+            logger.info("FBRef — %s", league["name"])
             fbref = FbrefService(
                 league_slug=league['league_slug'],
                 db_name=league['league_db']
@@ -64,18 +80,27 @@ def run_fbref():
             fbref.get_data_frame()
             fbref.get_passing_data()
         last_run["fbref"]["status"] = "ok"
+        logger.info("=== Job fbref completado ===")
     except Exception as e:
         last_run["fbref"]["status"] = f"error: {e}"
-        print(f"❌ Error en fbref: {e}")
+        logger.error("Job fbref falló: %s", e, exc_info=True)
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    leagues = LeaguesConfigRepository().find_active()
+    logger.info("Ligas configuradas: %d", len(leagues))
+    for lg in leagues:
+        logger.info("  · %s  (db=%s)", lg["name"], lg["league_db"])
+
+    logger.info("Arrancando scheduler...")
     scheduler.add_job(run_betplay, 'interval', minutes=10, id='betplay')
     scheduler.add_job(run_nightly, 'cron', hour=0, minute=0, id='nightly')
     scheduler.start()
+    logger.info("Scheduler activo — jobs: %s", [j.id for j in scheduler.get_jobs()])
     yield
     scheduler.shutdown()
+    logger.info("Scheduler detenido")
 
 
 app = FastAPI(title="Apuestas Deportivas API", lifespan=lifespan)
@@ -108,4 +133,4 @@ def trigger_nightly():
 
 
 if __name__ == "__main__":
-    uvicorn.run("main:app", host="0.0.0.0", port=8001, reload=False)
+    uvicorn.run("main:app", host="0.0.0.0", port=8001, reload=True)

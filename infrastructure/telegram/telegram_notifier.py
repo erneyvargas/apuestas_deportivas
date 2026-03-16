@@ -1,8 +1,12 @@
+import logging
 import os
+
 import requests
 from dotenv import load_dotenv
 
 load_dotenv()
+
+logger = logging.getLogger(__name__)
 
 
 class TelegramNotifier:
@@ -12,6 +16,8 @@ class TelegramNotifier:
         self.token = os.getenv("TELEGRAM_BOT_TOKEN")
         self.chat_id = os.getenv("TELEGRAM_CHAT_ID")
         self.enabled = bool(self.token and self.chat_id)
+        if not self.enabled:
+            logger.debug("TelegramNotifier deshabilitado (sin token/chat_id)")
 
     def send(self, message: str):
         if not self.enabled:
@@ -24,8 +30,8 @@ class TelegramNotifier:
             )
             data = response.json()
             if data.get("ok"):
-                print(f"📲 Telegram: mensaje enviado")
+                logger.info("Telegram: mensaje enviado correctamente")
             else:
-                print(f"⚠️  Telegram rechazó el mensaje: {data.get('description')}")
+                logger.warning("Telegram rechazó el mensaje: %s", data.get("description"))
         except Exception as e:
-            print(f"⚠️  Telegram error: {e}")
+            logger.error("Telegram error: %s", e)

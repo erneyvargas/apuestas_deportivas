@@ -1,5 +1,9 @@
+import logging
+
 from infrastructure.betplay.betplay_api_client import BetplayAPIClient
 from infrastructure.persistence.mongo_db_repository import MongoDBRepository
+
+logger = logging.getLogger(__name__)
 
 
 class BetplayService:
@@ -14,12 +18,14 @@ class BetplayService:
         - 'betplay': estado actual (se reemplaza en cada ejecución, lo usa el predictor).
         - 'betplay_odds_history': acumula todos los snapshots para analizar movimiento de cuotas.
         """
-        print(f"📌 Betplay: {self.betplay_path}")
+        logger.info("Fetching odds — path: %s", self.betplay_path)
 
         df_betplay = self.api_client.get_full_data(self.betplay_path)
         if df_betplay.empty:
-            print(f"❌ No se encontraron datos para {self.betplay_path}")
+            logger.warning("No se encontraron partidos para path: %s", self.betplay_path)
             return
+
+        logger.info("Partidos obtenidos: %d", len(df_betplay))
 
         # Estado actual para el predictor
         self.repository.save_dataframe_to_collection(

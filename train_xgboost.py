@@ -1,3 +1,5 @@
+import logging
+
 import numpy as np
 import pandas as pd
 
@@ -6,14 +8,11 @@ from models.xgboost.data_loader import load_historical_matches
 from models.xgboost.feature_engineer import build_features
 from models.xgboost.model import XGBoostResult
 
+logger = logging.getLogger(__name__)
+
 DB_NAME = "premier_league"
 
-# Decaimiento por temporada: la temporada actual tiene peso 1.0,
-# cada temporada anterior se multiplica por este factor.
-# 0.8 → la temporada más antigua tiene ~0.8^9 ≈ 0.13 del peso actual.
 SEASON_DECAY = 0.8
-
-# Split temporal: 70% train · 10% calibración · 20% test
 TRAIN_RATIO = 0.70
 CAL_RATIO   = 0.10
 
@@ -25,44 +24,39 @@ def compute_weights(seasons: "pd.Series") -> np.ndarray:
 
 
 def run(db_name: str):
-    print(f"📥 Cargando datos históricos ({db_name})...")
+    logger.info("Cargando datos históricos (%s)...", db_name)
     df = load_historical_matches(db_name)
-    print(f"   {len(df)} partidos disponibles")
+    logger.info("%d partidos disponibles", len(df))
 
-    print("⚙️  Construyendo features...")
+    logger.info("Construyendo features...")
     X, y, seasons = build_features(df)
-    print(f"   {len(X)} partidos con features completas")
-    print(f"   Distribución: H={( y==0).sum()}  D={(y==1).sum()}  A={(y==2).sum()}")
+    logger.info("%d partidos con features completas  |  H=%d  D=%d  A=%d",
+                len(X), (y == 0).sum(), (y == 1).sum(), (y == 2).sum())
 
     weights = compute_weights(seasons)
 
-    # Split temporal (sin shuffle para evitar data leakage)
     n       = len(X)
     n_train = int(n * TRAIN_RATIO)
     n_cal   = int(n * (TRAIN_RATIO + CAL_RATIO))
 
-    X_train  = X.iloc[:n_train]
-    y_train  = y.iloc[:n_train]
-    w_train  = weights[:n_train]
+    X_train = X.iloc[:n_train];  y_train = y.iloc[:n_train];  w_train = weights[:n_train]
+    X_cal   = X.iloc[n_train:n_cal]; y_cal = y.iloc[n_train:n_cal]
+    X_test  = X.iloc[n_cal:];   y_test  = y.iloc[n_cal:]
 
-    X_cal    = X.iloc[n_train:n_cal]
-    y_cal    = y.iloc[n_train:n_cal]
+    logger.info("Split — train: %d  cal: %d  test: %d  (decay=%.1f)",
+                len(X_train), len(X_cal), len(X_test), SEASON_DECAY)
+    logger.info("Peso temporada más antigua (%s): %.3f  |  actual (%s): 1.000",
+                SEASONS[0], SEASON_DECAY ** (len(SEASONS) - 1), SEASONS[-1])
 
-    X_test   = X.iloc[n_cal:]
-    y_test   = y.iloc[n_cal:]
-
-    print(f"\n🏋️  Entrenando XGBoost ({len(X_train)} partidos, decay={SEASON_DECAY})...")
-    print(f"   Peso temporada más antigua ({SEASONS[0]}): {SEASON_DECAY**(len(SEASONS)-1):.3f}")
-    print(f"   Peso temporada actual      ({SEASONS[-1]}): 1.000")
-    print(f"   Calibración: {len(X_cal)} partidos   Test: {len(X_test)} partidos")
-
+    logger.info("Entrenando XGBoost...")
     model = XGBoostResult()
     model.fit(X_train, y_train, sample_weight=w_train, X_cal=X_cal, y_cal=y_cal)
 
-    print(f"\n📊 Evaluación en test ({len(X_test)} partidos):")
+    logger.info("Evaluando en test (%d partidos)...", len(X_test))
     model.evaluate(X_test, y_test)
 
     model.save()
+    logger.info("Modelo guardado correctamente")
 
 
 def main():

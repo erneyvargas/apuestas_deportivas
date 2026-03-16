@@ -1,7 +1,10 @@
+import logging
 from datetime import datetime
 
 from infrastructure.football_data_org.football_data_org_client import FootballDataOrgClient
 from infrastructure.persistence.mongo_config import MongoConfig
+
+logger = logging.getLogger(__name__)
 
 COLLECTION = "h2h_results"
 
@@ -29,31 +32,19 @@ class H2HService:
         away_team: str,
         limit: int = 10,
     ) -> dict | None:
-        """
-        Retorna los datos H2H del partido. Usa caché por betplay_event_id.
-
-        Args:
-            betplay_event_id: ID del evento en Betplay (clave de caché).
-            home_team: Nombre del equipo local.
-            away_team: Nombre del equipo visitante.
-            limit: Cantidad máxima de enfrentamientos a retornar.
-
-        Returns:
-            Diccionario con los partidos y resumen H2H, o None si falla.
-        """
         # 1. Verificar caché
         cached = self.collection.find_one({"betplay_event_id": betplay_event_id})
         if cached:
-            print(f"✅ H2H desde caché: {home_team} vs {away_team}")
+            logger.debug("H2H cache hit — %s vs %s", home_team, away_team)
             cached.pop("_id", None)
             return cached
 
         # 2. Consultar API
-        print(f"🌐 Consultando H2H en football-data.org: {home_team} vs {away_team}...")
+        logger.info("H2H API fetch — %s vs %s", home_team, away_team)
         try:
             raw_matches = self.client.get_h2h_matches(home_team, away_team, limit=limit)
         except Exception as e:
-            print(f"❌ Error obteniendo H2H: {e}")
+            logger.error("Error obteniendo H2H (%s vs %s): %s", home_team, away_team, e)
             return None
 
         # 3. Parsear partidos
@@ -65,7 +56,7 @@ class H2HService:
                 "away_team": m["awayTeam"]["name"],
                 "home_goals": m["score"]["fullTime"]["home"],
                 "away_goals": m["score"]["fullTime"]["away"],
-                "winner": m["score"]["winner"],  # HOME_TEAM | AWAY_TEAM | DRAW
+                "winner": m["score"]["winner"],
             })
 
         # 4. Calcular resumen
@@ -98,5 +89,6 @@ class H2HService:
         # 5. Persistir en MongoDB
         self.collection.insert_one(doc)
         doc.pop("_id", None)
-        print(f"✅ H2H guardado en '{COLLECTION}': {len(matches)} partidos encontrados")
+        logger.info("H2H guardado — %s vs %s: %d partidos (W%d D%d L%d)",
+                    home_team, away_team, len(matches), home_wins, draws, away_wins)
         return doc

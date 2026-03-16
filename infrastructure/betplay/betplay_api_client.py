@@ -1,3 +1,4 @@
+import logging
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime
 
@@ -7,37 +8,44 @@ from unidecode import unidecode
 
 from infrastructure.betplay.config import Config
 
+logger = logging.getLogger(__name__)
+
 
 class BetplayAPIClient:
 
     @staticmethod
     def fetch_leagues():
+        url = Config.API_URL + "/group/highlight.json"
+        logger.debug("GET %s", url)
         try:
             response = requests.get(
-                Config.API_URL + "/group/highlight.json",
+                url,
                 params=Config.DEFAULT_PARAMS,
                 headers=Config.HEADERS,
                 timeout=10
             )
             response.raise_for_status()
-            return response.json().get('groups', [])
+            groups = response.json().get('groups', [])
+            logger.info("Ligas obtenidas: %d", len(groups))
+            return groups
 
         except requests.exceptions.RequestException as e:
-            print(f"[API Error] {str(e)}")
+            logger.error("Error fetching leagues: %s", e)
             return None
 
     def get_full_data(self, path):
         df_partidos = self.get_datos_partidos(path)
-        df_resultado = df_partidos
-        return df_resultado
-
+        return df_partidos
 
     def get_datos_partidos(self, path):
+        url = (Config.API_URL + "/listView" + path
+               + ".json?lang=es_ES&market=CO&client_id=2&channel_id=1&ncid=1641434042006&useCombined=true")
+        logger.debug("GET partidos base — path: %s", path)
 
-        url_api_partido = Config.API_URL + "/listView" + path + ".json?lang=es_ES&market=CO&client_id=2&channel_id=1&ncid=1641434042006&useCombined=true"
-        response = requests.get(url_api_partido, headers=Config.HEADERS)
+        response = requests.get(url, headers=Config.HEADERS)
         data_api_partido = response.json()
         partidos = data_api_partido["events"]
+        logger.debug("Eventos base recibidos: %d", len(partidos))
 
         lista_partidos = []
         now = datetime.now()
@@ -58,6 +66,7 @@ class BetplayAPIClient:
         df_partidos = pd.DataFrame(lista_partidos)
 
         category_ids = ['11942', '12220', '11927', '11929', '12319', '11930', '11931', '19260']
+        logger.debug("Fetching %d categorías en paralelo", len(category_ids))
         with ThreadPoolExecutor(max_workers=len(category_ids)) as executor:
             futures = {cat: executor.submit(self.get_data_event_by_category, path, cat)
                        for cat in category_ids}
@@ -67,14 +76,14 @@ class BetplayAPIClient:
         for cat in category_ids:
             df_resultado = df_resultado.merge(category_dfs[cat])
 
+        logger.info("DataFrame final: %d partidos, %d columnas", len(df_resultado), len(df_resultado.columns))
         return df_resultado
 
-
     def get_data_event_by_category(self, path, category):
-
-        endpoint = ".json?lang=es_ES&market=CO&client_id=2&channel_id=1&ncid=1641434366938&category=" + category + "&useCombined=true"
-        url_api = Config.API_URL + "/listView" + path + endpoint
-        response = requests.get(url_api, headers=Config.HEADERS)
+        endpoint = (f".json?lang=es_ES&market=CO&client_id=2&channel_id=1"
+                    f"&ncid=1641434366938&category={category}&useCombined=true")
+        url = Config.API_URL + "/listView" + path + endpoint
+        response = requests.get(url, headers=Config.HEADERS)
         data_api_json = response.json()
         events = data_api_json["events"]
 
@@ -89,9 +98,10 @@ class BetplayAPIClient:
             dicc_offers = self.get_offers_event(bet_offers)
             dicc_partido.update(dicc_offers)
             lista_partidos.append(dicc_partido)
-        df_partidos = pd.DataFrame(lista_partidos)
-        return df_partidos
 
+        df_partidos = pd.DataFrame(lista_partidos)
+        logger.debug("Categoría %s: %d eventos", category, len(df_partidos))
+        return df_partidos
 
     def get_offers_event(self, bet_offers):
         dicc_offers = {}
