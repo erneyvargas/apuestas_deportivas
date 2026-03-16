@@ -46,6 +46,7 @@ def load_historical_matches(db_name: str) -> pd.DataFrame:
         df[col] = df[col].apply(_normalize_fd_team)
 
     df["Date"] = pd.to_datetime(df["Date"], format="mixed", dayfirst=True)
+    df = df.sort_values("Date").reset_index(drop=True)
     return df
 
 

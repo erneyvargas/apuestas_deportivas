@@ -1,6 +1,8 @@
 import logging
 from datetime import datetime, timezone, timedelta
 
+import pandas as pd
+
 from models.xgboost.data_loader import load_historical_matches, load_matches
 from models.xgboost.odds_utils import implied_prob, detect_value, devig, VALUE_THRESHOLD
 from models.xgboost.feature_engineer import build_match_features
@@ -77,6 +79,9 @@ def run(db_name: str, api_football_id: int | None = None):
 
     logger.info("Partidos a evaluar: %d", len(df_matches))
 
+    # Precalcular future_date una sola vez para todos los partidos del loop
+    future_date = df_history["Date"].max() + pd.Timedelta(days=1)
+
     notifier = TelegramNotifier()
     h2h_service = H2HService(db_name)
     lineup_service = LineupService(db_name, api_football_id) if api_football_id else None
@@ -96,7 +101,7 @@ def run(db_name: str, api_football_id: int | None = None):
                      odd_1 or 0, odd_x or 0, odd_2 or 0)
 
         h2h_doc = h2h_service.get_h2h(int(match["id"]), home, away)
-        X = build_match_features(home, away, odd_1, odd_x, odd_2, df_history, h2h_doc)
+        X = build_match_features(home, away, odd_1, odd_x, odd_2, df_history, h2h_doc, future_date)
         pred = model.predict(X)
 
         # Ajuste por alineación (solo ≤75 min antes del partido)
