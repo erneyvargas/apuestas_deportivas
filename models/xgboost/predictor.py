@@ -10,7 +10,6 @@ from models.xgboost.model import XGBoostResult
 from infrastructure.telegram.telegram_notifier import TelegramNotifier
 from infrastructure.groq.groq_client import generate_match_explanation
 from application.football_data_org.h2h_service import H2HService
-from application.lineup.lineup_service import LineupService
 
 logger = logging.getLogger(__name__)
 
@@ -42,19 +41,8 @@ def _minutes_until(fecha: str) -> float | None:
         return None
 
 
-def _adjust_for_lineups(pred: dict, lineup: dict) -> dict:
-    h = lineup["home_strength"]
-    a = lineup["away_strength"]
-    adjusted = {
-        "home_win": pred["home_win"] * h,
-        "draw":     pred["draw"],
-        "away_win": pred["away_win"] * a,
-    }
-    total = sum(adjusted.values())
-    return {k: round(v / total, 4) for k, v in adjusted.items()}
 
-
-def run(db_name: str, api_football_id: int | None = None):
+def run(db_name: str):
     logger.info("=== Predictor XGBoost — %s ===", db_name)
 
     try:
@@ -84,7 +72,6 @@ def run(db_name: str, api_football_id: int | None = None):
 
     notifier = TelegramNotifier()
     h2h_service = H2HService(db_name)
-    lineup_service = LineupService(db_name, api_football_id) if api_football_id else None
 
     value_bets_total = 0
 
@@ -103,24 +90,6 @@ def run(db_name: str, api_football_id: int | None = None):
         h2h_doc = h2h_service.get_h2h(int(match["id"]), home, away)
         X = build_match_features(home, away, odd_1, odd_x, odd_2, df_history, h2h_doc, future_date)
         pred = model.predict(X)
-
-        # Ajuste por alineación (solo ≤75 min antes del partido)
-        lineup = None
-        fecha = match.get("fecha_evento", "")
-        if lineup_service and fecha:
-            mins = _minutes_until(fecha)
-            if mins is not None and 0 < mins <= 75:
-                logger.info("Buscando alineación — %s vs %s (%.0f min para el partido)",
-                            home, away, mins)
-                lineup = lineup_service.get_lineup_strength(home, away, fecha)
-                if lineup:
-                    pred_before = dict(pred)
-                    pred = _adjust_for_lineups(pred, lineup)
-                    logger.info("Ajuste por XI — antes: H=%.1f%% D=%.1f%% A=%.1f%%  →  "
-                                "después: H=%.1f%% D=%.1f%% A=%.1f%%",
-                                pred_before["home_win"] * 100, pred_before["draw"] * 100,
-                                pred_before["away_win"] * 100,
-                                pred["home_win"] * 100, pred["draw"] * 100, pred["away_win"] * 100)
 
         labels = {"home_win": home, "draw": "Empate", "away_win": away}
         odds   = {"home_win": odd_1, "draw": odd_x, "away_win": odd_2}
@@ -161,7 +130,7 @@ def run(db_name: str, api_football_id: int | None = None):
         if not explanation:
             explanation = _generate_explanation(home, away, winner_key, X, h2h_doc)
         _notify(notifier, match["partido"], match.get("fecha_evento", ""), match.get("liga", ""),
-                pred, labels, explanation, odds, fair, value_bets, lineup)
+                pred, labels, explanation, odds, fair, value_bets)
 
     logger.info("Predictor finalizado — %d value bets detectados en %d partidos",
                 value_bets_total, len(df_matches))
@@ -275,7 +244,7 @@ def _bar(prob: float, width: int = 10) -> str:
 
 def _notify(notifier: TelegramNotifier, partido: str, fecha: str, liga: str, pred: dict,
             labels: dict, explanation: str, odds: dict, fair: dict,
-            value_bets: list = None, lineup: dict = None):
+            value_bets: list = None):
     sep = "━━━━━━━━━━━━━━━━━━━━━━━━"
     is_value = bool(value_bets)
 
@@ -291,18 +260,6 @@ def _notify(notifier: TelegramNotifier, partido: str, fecha: str, liga: str, pre
         f"📅 {_format_date(fecha)}  ·  {liga}",
         sep,
     ]
-
-    if lineup:
-        h_pct   = f"{lineup['home_strength']*100:.0f}%"
-        a_pct   = f"{lineup['away_strength']*100:.0f}%"
-        h_names = "  ·  ".join(lineup["home_xi"][:5]) + ("..." if len(lineup["home_xi"]) > 5 else "")
-        a_names = "  ·  ".join(lineup["away_xi"][:5]) + ("..." if len(lineup["away_xi"]) > 5 else "")
-        lines += [
-            f"🧩 <b>Alineaciones</b>  —  🏠 {h_pct}  ✈️ {a_pct}",
-            f"🏠 {h_names}",
-            f"✈️  {a_names}",
-            sep,
-        ]
 
     for key in RESULT_KEYS:
         label   = labels[key]

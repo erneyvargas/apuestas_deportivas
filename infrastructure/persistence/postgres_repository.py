@@ -79,8 +79,8 @@ class PostgresRepository:
                 logger.warning("DataFrame vacío recibido para '%s'", collection_name)
                 return True, 0
 
-            if collection_name in ("betplay", "betplay_odds_history"):
-                count = self._save_betplay(collection_name, df, clear_collection)
+            if collection_name == "betplay_odds_history":
+                count = self._save_betplay(df, clear_collection)
             elif collection_name == "historical_matches":
                 count = self._save_historical_matches(df, clear_collection)
             else:
@@ -111,12 +111,9 @@ class PostgresRepository:
     #  Handlers por tabla                                                  #
     # ------------------------------------------------------------------ #
 
-    def _save_betplay(self, table: str, df: pd.DataFrame, clear: bool) -> int:
+    def _save_betplay(self, df: pd.DataFrame, clear: bool) -> int:
         rows = df.to_dict("records")
         with self._cursor() as cur:
-            if clear:
-                cur.execute(f"DELETE FROM {table} WHERE league_id = %s", (self._league_id,))
-
             count = 0
             for row in rows:
                 base = {k: _clean(row.get(k)) for k in _BETPLAY_BASE}
@@ -125,47 +122,29 @@ class PostgresRepository:
                     for k, v in row.items()
                     if k not in _BETPLAY_BASE
                 }
-
-                if table == "betplay":
-                    cur.execute(
-                        """
-                        INSERT INTO betplay
-                            (league_id, event_id, registered_at, event_at, league_name, match_name, odds)
-                        VALUES (%s, %s, %s, %s, %s, %s, %s)
-                        ON CONFLICT (league_id, event_id) DO UPDATE
-                            SET registered_at = EXCLUDED.registered_at,
-                                event_at      = EXCLUDED.event_at,
-                                league_name   = EXCLUDED.league_name,
-                                match_name    = EXCLUDED.match_name,
-                                odds          = EXCLUDED.odds
-                        """,
-                        (
-                            self._league_id,
-                            base["id"],
-                            base["fecha_registro"],
-                            base["fecha_evento"],
-                            base["liga"],
-                            base["partido"],
-                            Json(odds),
-                        ),
-                    )
-                else:  # betplay_odds_history
-                    cur.execute(
-                        """
-                        INSERT INTO betplay_odds_history
-                            (league_id, event_id, registered_at, event_at, league_name, match_name, odds)
-                        VALUES (%s, %s, %s, %s, %s, %s, %s)
-                        """,
-                        (
-                            self._league_id,
-                            base["id"],
-                            base["fecha_registro"],
-                            base["fecha_evento"],
-                            base["liga"],
-                            base["partido"],
-                            Json(odds),
-                        ),
-                    )
+                cur.execute(
+                    """
+                    INSERT INTO betplay_odds_history
+                        (event_id, league_id, registered_at, event_at, league_name, match_name, odds)
+                    VALUES (%s, %s, %s, %s, %s, %s, %s)
+                    ON CONFLICT (event_id) DO UPDATE
+                        SET league_id     = EXCLUDED.league_id,
+                            registered_at = EXCLUDED.registered_at,
+                            event_at      = EXCLUDED.event_at,
+                            league_name   = EXCLUDED.league_name,
+                            match_name    = EXCLUDED.match_name,
+                            odds          = EXCLUDED.odds
+                    """,
+                    (
+                        base["id"],
+                        self._league_id,
+                        base["fecha_registro"],
+                        base["fecha_evento"],
+                        base["liga"],
+                        base["partido"],
+                        Json(odds),
+                    ),
+                )
                 count += 1
         return count
 

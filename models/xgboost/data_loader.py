@@ -85,7 +85,7 @@ def load_historical_matches(db_name: str) -> pd.DataFrame:
 
 
 def load_matches(db_name: str) -> pd.DataFrame:
-    """Carga partidos actuales desde la tabla betplay de PostgreSQL."""
+    """Carga el último snapshot de cuotas desde betplay_odds_history."""
     league_id = PostgresConfig.get_league_id(db_name)
     conn = PostgresConfig.get_connection()
     try:
@@ -95,7 +95,7 @@ def load_matches(db_name: str) -> pd.DataFrame:
                 SELECT event_id AS id, registered_at AS fecha_registro,
                        event_at AS fecha_evento, league_name AS liga,
                        match_name AS partido, odds
-                FROM betplay
+                FROM betplay_odds_history
                 WHERE league_id = %s
                 """,
                 (league_id,),

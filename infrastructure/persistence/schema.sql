@@ -13,32 +13,18 @@ CREATE TABLE IF NOT EXISTS leagues (
     api_football_id INTEGER
 );
 
--- Snapshot actual de cuotas Betplay (se reemplaza en cada ejecución)
-CREATE TABLE IF NOT EXISTS betplay (
-    id              BIGSERIAL PRIMARY KEY,
-    league_id       INTEGER NOT NULL REFERENCES leagues(id),
-    event_id        BIGINT NOT NULL,
-    registered_at   TIMESTAMP,
-    event_at        TIMESTAMP,
-    league_name     VARCHAR(200),
-    match_name      VARCHAR(300),
-    odds            JSONB,
-    UNIQUE (league_id, event_id)
-);
-
--- Historial acumulado de movimientos de cuotas
+-- Cuotas Betplay (una fila por evento, se actualiza en cada ejecución)
 CREATE TABLE IF NOT EXISTS betplay_odds_history (
-    id              BIGSERIAL PRIMARY KEY,
+    event_id        BIGINT PRIMARY KEY,
     league_id       INTEGER NOT NULL REFERENCES leagues(id),
-    event_id        BIGINT NOT NULL,
     registered_at   TIMESTAMP,
     event_at        TIMESTAMP,
     league_name     VARCHAR(200),
     match_name      VARCHAR(300),
     odds            JSONB
 );
-CREATE INDEX IF NOT EXISTS idx_betplay_history_lookup
-    ON betplay_odds_history (league_id, event_id, registered_at);
+CREATE INDEX IF NOT EXISTS idx_betplay_event
+    ON betplay_odds_history (event_id);
 
 -- Partidos históricos de football-data.co.uk
 CREATE TABLE IF NOT EXISTS historical_matches (
@@ -76,24 +62,3 @@ CREATE TABLE IF NOT EXISTS h2h_results (
 CREATE UNIQUE INDEX IF NOT EXISTS idx_h2h_event_league
     ON h2h_results (league_id, betplay_event_id);
 
--- Caché de fixture IDs de API-Football
-CREATE TABLE IF NOT EXISTS lineup_fixtures_cache (
-    id           BIGSERIAL PRIMARY KEY,
-    home         VARCHAR(200),
-    away         VARCHAR(200),
-    date         VARCHAR(20),
-    fixture_id   INTEGER,
-    home_team_id INTEGER,
-    away_team_id INTEGER,
-    home_api     VARCHAR(200),
-    away_api     VARCHAR(200)
-);
-CREATE UNIQUE INDEX IF NOT EXISTS idx_lineup_fixture_key
-    ON lineup_fixtures_cache (home, away, date);
-
--- Caché de ratings de jugadores por equipo/temporada
-CREATE TABLE IF NOT EXISTS lineup_ratings_cache (
-    id      SERIAL PRIMARY KEY,
-    key     VARCHAR(100) NOT NULL UNIQUE,
-    ratings JSONB
-);

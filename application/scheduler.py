@@ -31,7 +31,7 @@ def run_betplay() -> None:
                 league_db=league["league_db"],
                 betplay_path=league["betplay_path"],
             ).save_league_odds()
-            xgboost_predictor.run(league["league_db"], league.get("api_football_id"))
+            xgboost_predictor.run(league["league_db"])
         last_run["betplay"]["status"] = "ok"
         logger.info("=== Job betplay completado en %.1fs ===", time.perf_counter() - t0)
     except Exception as e:
