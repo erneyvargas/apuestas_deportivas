@@ -74,7 +74,8 @@ class BetplayAPIClient:
 
         df_resultado = df_partidos
         for cat in category_ids:
-            df_resultado = df_resultado.merge(category_dfs[cat])
+            df_cat = category_dfs[cat].drop(columns=["partido"], errors="ignore")
+            df_resultado = df_resultado.merge(df_cat, on="id", how="left")
 
         logger.info("DataFrame final: %d partidos, %d columnas", len(df_resultado), len(df_resultado.columns))
         return df_resultado
