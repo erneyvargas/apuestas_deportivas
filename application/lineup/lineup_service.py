@@ -1,9 +1,12 @@
 import logging
+from contextlib import contextmanager
 from datetime import datetime
 from difflib import SequenceMatcher
 
+from psycopg2.extras import Json
+
 from infrastructure.api_football.api_football_client import APIFootballClient
-from infrastructure.persistence.mongo_config import MongoConfig
+from infrastructure.persistence.postgres_config import PostgresConfig
 
 logger = logging.getLogger(__name__)
 
@@ -22,13 +25,32 @@ class LineupService:
     """Obtiene alineaciones confirmadas de API-Football y calcula la fortaleza
     del XI comparándolo con el mejor once posible según ratings de temporada.
 
-    Cachea fixture IDs y ratings en MongoDB para minimizar llamadas a la API.
+    Cachea fixture IDs y ratings en PostgreSQL para minimizar llamadas a la API.
     """
 
     def __init__(self, db_name: str, league_id: int):
         self.client = APIFootballClient()
-        self.db = MongoConfig.get_db(db_name)
+        self.league_db = db_name
         self.league_id = league_id
+
+    @contextmanager
+    def _cursor(self):
+        conn = PostgresConfig.get_connection()
+        try:
+            with conn.cursor() as cur:
+                yield cur
+            conn.commit()
+        except Exception:
+            conn.rollback()
+            raise
+        finally:
+            PostgresConfig.put_connection(conn)
+
+    def _get_conn(self):
+        return PostgresConfig.get_connection()
+
+    def _put_conn(self, conn):
+        PostgresConfig.put_connection(conn)
 
     # ------------------------------------------------------------------ #
     #  Fixture lookup                                                       #
@@ -40,9 +62,7 @@ class LineupService:
         """
         date = fecha[:10]
 
-        cached = self.db["lineup_fixtures_cache"].find_one(
-            {"home": home, "away": away, "date": date}, {"_id": 0}
-        )
+        cached = self._fixture_cache_get(home, away, date)
         if cached:
             logger.debug("Fixture cache hit — %s vs %s (%s)", home, away, date)
             return cached
@@ -68,10 +88,7 @@ class LineupService:
                     "home_api":     fh,
                     "away_api":     fa,
                 }
-                self.db["lineup_fixtures_cache"].update_one(
-                    {"home": home, "away": away, "date": date},
-                    {"$set": doc}, upsert=True,
-                )
+                self._fixture_cache_upsert(doc)
                 logger.info("Fixture encontrado: id=%s ('%s' — '%s')",
                             doc["fixture_id"], fh, fa)
                 return doc
@@ -79,20 +96,61 @@ class LineupService:
         logger.warning("Fixture no encontrado para %s vs %s (%s)", home, away, date)
         return None
 
+    def _fixture_cache_get(self, home: str, away: str, date: str) -> dict | None:
+        conn = self._get_conn()
+        try:
+            with conn.cursor() as cur:
+                cur.execute(
+                    """
+                    SELECT home, away, date, fixture_id, home_team_id,
+                           away_team_id, home_api, away_api
+                    FROM lineup_fixtures_cache
+                    WHERE home = %s AND away = %s AND date = %s
+                    """,
+                    (home, away, date),
+                )
+                row = cur.fetchone()
+                if row is None:
+                    return None
+                cols = [d[0] for d in cur.description]
+                return dict(zip(cols, row))
+        finally:
+            self._put_conn(conn)
+
+    def _fixture_cache_upsert(self, doc: dict) -> None:
+        with self._cursor() as cur:
+            cur.execute(
+                """
+                INSERT INTO lineup_fixtures_cache
+                    (home, away, date, fixture_id, home_team_id, away_team_id, home_api, away_api)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+                ON CONFLICT (home, away, date) DO UPDATE
+                    SET fixture_id   = EXCLUDED.fixture_id,
+                        home_team_id = EXCLUDED.home_team_id,
+                        away_team_id = EXCLUDED.away_team_id,
+                        home_api     = EXCLUDED.home_api,
+                        away_api     = EXCLUDED.away_api
+                """,
+                (
+                    doc["home"], doc["away"], doc["date"],
+                    doc["fixture_id"], doc["home_team_id"], doc["away_team_id"],
+                    doc["home_api"], doc["away_api"],
+                ),
+            )
+
     # ------------------------------------------------------------------ #
     #  Player ratings                                                       #
     # ------------------------------------------------------------------ #
 
     def _get_ratings(self, team_id: int, season: int) -> dict:
-        """Devuelve {player_id: rating} cacheado en MongoDB."""
+        """Devuelve {player_id: rating} cacheado en PostgreSQL."""
         cache_key = f"{team_id}_{season}"
-        cached = self.db["lineup_ratings_cache"].find_one(
-            {"key": cache_key}, {"_id": 0}
-        )
-        if cached:
+
+        cached = self._ratings_cache_get(cache_key)
+        if cached is not None:
             logger.debug("Ratings cache hit — team_id=%s season=%s (%d jugadores)",
-                         team_id, season, len(cached["ratings"]))
-            return cached["ratings"]
+                         team_id, season, len(cached))
+            return cached
 
         logger.info("Fetching ratings — team_id=%s season=%s", team_id, season)
         players = self.client.get_squad_stats(team_id, self.league_id, season)
@@ -104,13 +162,33 @@ class LineupService:
             if r:
                 ratings[pid] = float(r)
 
-        self.db["lineup_ratings_cache"].update_one(
-            {"key": cache_key},
-            {"$set": {"key": cache_key, "ratings": ratings}},
-            upsert=True,
-        )
+        self._ratings_cache_upsert(cache_key, ratings)
         logger.info("Ratings guardados — team_id=%s: %d jugadores con rating", team_id, len(ratings))
         return ratings
+
+    def _ratings_cache_get(self, key: str) -> dict | None:
+        conn = self._get_conn()
+        try:
+            with conn.cursor() as cur:
+                cur.execute(
+                    "SELECT ratings FROM lineup_ratings_cache WHERE key = %s",
+                    (key,),
+                )
+                row = cur.fetchone()
+                return row[0] if row else None
+        finally:
+            self._put_conn(conn)
+
+    def _ratings_cache_upsert(self, key: str, ratings: dict) -> None:
+        with self._cursor() as cur:
+            cur.execute(
+                """
+                INSERT INTO lineup_ratings_cache (key, ratings)
+                VALUES (%s, %s)
+                ON CONFLICT (key) DO UPDATE SET ratings = EXCLUDED.ratings
+                """,
+                (key, Json(ratings)),
+            )
 
     # ------------------------------------------------------------------ #
     #  Strength calculation                                                 #

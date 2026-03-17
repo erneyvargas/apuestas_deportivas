@@ -1,12 +1,13 @@
 import logging
+from contextlib import contextmanager
 from datetime import datetime
 
+from psycopg2.extras import Json
+
 from infrastructure.football_data_org.football_data_org_client import FootballDataOrgClient
-from infrastructure.persistence.mongo_config import MongoConfig
+from infrastructure.persistence.postgres_config import PostgresConfig
 
 logger = logging.getLogger(__name__)
-
-COLLECTION = "h2h_results"
 
 
 class H2HService:
@@ -15,15 +16,28 @@ class H2HService:
 
     Flujo:
     1. Recibe betplay_event_id, home_team y away_team.
-    2. Busca en MongoDB usando betplay_event_id como clave de caché.
+    2. Busca en PostgreSQL usando betplay_event_id como clave de caché.
     3. Si existe → retorna el documento cacheado (sin llamada a la API).
     4. Si no existe → consulta football-data.org, construye el documento,
-       lo persiste en MongoDB y lo retorna.
+       lo persiste en PostgreSQL y lo retorna.
     """
 
     def __init__(self, db_name: str):
         self.client = FootballDataOrgClient()
-        self.collection = MongoConfig.get_db(db_name)[COLLECTION]
+        self._league_id = PostgresConfig.get_league_id(db_name)
+
+    @contextmanager
+    def _cursor(self):
+        conn = PostgresConfig.get_connection()
+        try:
+            with conn.cursor() as cur:
+                yield cur
+            conn.commit()
+        except Exception:
+            conn.rollback()
+            raise
+        finally:
+            PostgresConfig.put_connection(conn)
 
     def get_h2h(
         self,
@@ -33,10 +47,9 @@ class H2HService:
         limit: int = 10,
     ) -> dict | None:
         # 1. Verificar caché
-        cached = self.collection.find_one({"betplay_event_id": betplay_event_id})
+        cached = self._find_cached(betplay_event_id)
         if cached:
             logger.debug("H2H cache hit — %s vs %s", home_team, away_team)
-            cached.pop("_id", None)
             return cached
 
         # 2. Consultar API
@@ -86,9 +99,64 @@ class H2HService:
             },
         }
 
-        # 5. Persistir en MongoDB
-        self.collection.insert_one(doc)
-        doc.pop("_id", None)
-        logger.info("H2H guardado — %s vs %s: %d partidos (W%d D%d L%d)",
-                    home_team, away_team, len(matches), home_wins, draws, away_wins)
+        # 5. Persistir en PostgreSQL
+        self._insert(doc)
+        logger.info(
+            "H2H guardado — %s vs %s: %d partidos (W%d D%d L%d)",
+            home_team, away_team, len(matches), home_wins, draws, away_wins,
+        )
         return doc
+
+    # ------------------------------------------------------------------ #
+    #  Acceso a datos                                                      #
+    # ------------------------------------------------------------------ #
+
+    def _find_cached(self, betplay_event_id: int) -> dict | None:
+        conn = PostgresConfig.get_connection()
+        try:
+            with conn.cursor() as cur:
+                cur.execute(
+                    """
+                    SELECT betplay_event_id, home_team, away_team,
+                           fetched_at, matches, summary
+                    FROM h2h_results
+                    WHERE league_id = %s AND betplay_event_id = %s
+                    """,
+                    (self._league_id, betplay_event_id),
+                )
+                row = cur.fetchone()
+                if row is None:
+                    return None
+                cols = [d[0] for d in cur.description]
+                doc = dict(zip(cols, row))
+                if isinstance(doc.get("fetched_at"), datetime):
+                    doc["fetched_at"] = doc["fetched_at"].isoformat()
+                return doc
+        finally:
+            PostgresConfig.put_connection(conn)
+
+    def _insert(self, doc: dict) -> None:
+        with self._cursor() as cur:
+            cur.execute(
+                """
+                INSERT INTO h2h_results
+                    (league_id, betplay_event_id, home_team, away_team,
+                     fetched_at, matches, summary)
+                VALUES (%s, %s, %s, %s, %s, %s, %s)
+                ON CONFLICT (league_id, betplay_event_id) DO UPDATE
+                    SET home_team  = EXCLUDED.home_team,
+                        away_team  = EXCLUDED.away_team,
+                        fetched_at = EXCLUDED.fetched_at,
+                        matches    = EXCLUDED.matches,
+                        summary    = EXCLUDED.summary
+                """,
+                (
+                    self._league_id,
+                    doc["betplay_event_id"],
+                    doc["home_team"],
+                    doc["away_team"],
+                    doc["fetched_at"],
+                    Json(doc["matches"]),
+                    Json(doc["summary"]),
+                ),
+            )

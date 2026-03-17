@@ -17,5 +17,5 @@ def setup_logging() -> None:
     )
 
     # Silenciar loggers ruidosos de terceros
-    for noisy in ("pymongo", "urllib3", "httpx", "apscheduler.scheduler"):
+    for noisy in ("urllib3", "httpx", "apscheduler.scheduler"):
         logging.getLogger(noisy).setLevel(logging.WARNING)

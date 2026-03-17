@@ -1,15 +1,22 @@
 services:
-  mongodb:
-    image: mongo:latest
-    container_name: mongodb
+  postgres:
+    image: postgres:18
+    container_name: postgres18
     restart: always
     environment:
-      MONGO_INITDB_ROOT_USERNAME: root
-      MONGO_INITDB_ROOT_PASSWORD: pass134
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: apuestas_deportivas
     ports:
-      - "27017:27017"
+      - "5432:5432"
     volumes:
-      - mongodb_data:/data/db
+      - postgres_data:/var/lib/postgresql
+      - ./infrastructure/persistence/schema.sql:/docker-entrypoint-initdb.d/schema.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d apuestas_deportivas"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
 
   app:
     build: .
@@ -20,11 +27,12 @@ services:
     env_file:
       - .env
     environment:
-      MONGO_URI: mongodb://root:pass134@mongodb:27017/
+      POSTGRES_URI: postgresql://postgres:postgres@postgres:5432/apuestas_deportivas
     volumes:
       - .:/app
     depends_on:
-      - mongodb
+      postgres:
+        condition: service_healthy
 
 volumes:
-  mongodb_data:
+  postgres_data:

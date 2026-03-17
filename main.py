@@ -9,10 +9,10 @@ from fastapi import FastAPI
 
 import train_xgboost
 from application.betplay.betplay_service import BetplayService
-from application.fbref.fbref_service import FbrefService
 from application.football_data.football_data_service import FootballDataService
 from infrastructure.logging_config import setup_logging
 from infrastructure.persistence.leagues_config_repository import LeaguesConfigRepository
+from infrastructure.persistence.postgres_config import PostgresConfig
 from models.xgboost import predictor as xgboost_predictor
 
 setup_logging()
@@ -23,6 +23,7 @@ last_run: dict = {
     "betplay": {"time": None, "status": None},
     "nightly": {"time": None, "status": None},
 }
+
 
 
 def run_betplay():
@@ -66,28 +67,10 @@ def run_nightly():
         logger.error("Job nightly falló: %s", e, exc_info=True)
 
 
-def run_fbref():
-    last_run["fbref"]["time"] = datetime.now().isoformat()
-    logger.info("=== Iniciando job fbref ===")
-    try:
-        leagues = LeaguesConfigRepository().find_active()
-        for league in leagues:
-            logger.info("FBRef — %s", league["name"])
-            fbref = FbrefService(
-                league_slug=league['league_slug'],
-                db_name=league['league_db']
-            )
-            fbref.get_data_frame()
-            fbref.get_passing_data()
-        last_run["fbref"]["status"] = "ok"
-        logger.info("=== Job fbref completado ===")
-    except Exception as e:
-        last_run["fbref"]["status"] = f"error: {e}"
-        logger.error("Job fbref falló: %s", e, exc_info=True)
-
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    PostgresConfig.init_schema()
     leagues = LeaguesConfigRepository().find_active()
     logger.info("Ligas configuradas: %d", len(leagues))
     for lg in leagues:

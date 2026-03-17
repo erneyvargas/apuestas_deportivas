@@ -1,7 +1,7 @@
 import logging
 
 from infrastructure.betplay.betplay_api_client import BetplayAPIClient
-from infrastructure.persistence.mongo_db_repository import MongoDBRepository
+from infrastructure.persistence.postgres_repository import PostgresRepository
 
 logger = logging.getLogger(__name__)
 
@@ -10,7 +10,7 @@ class BetplayService:
     def __init__(self, league_db: str, betplay_path: str):
         self.betplay_path = betplay_path
         self.api_client = BetplayAPIClient()
-        self.repository = MongoDBRepository(db_name=league_db)
+        self.repository = PostgresRepository(league_db=league_db)
 
     def save_league_odds(self):
         """Obtiene y guarda las cuotas de la liga.

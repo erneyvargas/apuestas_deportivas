@@ -1,5 +1,6 @@
 import pandas as pd
-from infrastructure.persistence.mongo_config import MongoConfig
+
+from infrastructure.persistence.postgres_config import PostgresConfig
 
 # Mapeo de nombres Betplay → FBRef
 TEAM_NAME_MAP = {
@@ -33,14 +34,47 @@ def _normalize_fd_team(name: str) -> str:
 
 
 def load_historical_matches(db_name: str) -> pd.DataFrame:
-    """Carga partidos históricos de football-data.co.uk desde MongoDB."""
-    db = MongoConfig.get_db(db_name)
-    df = pd.DataFrame(list(db["historical_matches"].find({}, {"_id": 0})))
+    """Carga partidos históricos de football-data.co.uk desde PostgreSQL."""
+    conn = PostgresConfig.get_connection()
+    try:
+        league_id = PostgresConfig.get_league_id(db_name)
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                SELECT date, home_team, away_team,
+                       fthg, ftag, ftr, hc, ac, b365h, b365d, b365a, season
+                FROM historical_matches
+                WHERE league_id = %s
+                ORDER BY date
+                """,
+                (league_id,),
+            )
+            cols = [d[0] for d in cur.description]
+            rows = cur.fetchall()
+    finally:
+        PostgresConfig.put_connection(conn)
 
-    if df.empty:
+    if not rows:
         raise RuntimeError(
             "No hay datos históricos. Ejecuta: uv run python sync_historical.py"
         )
+
+    df = pd.DataFrame(rows, columns=cols)
+
+    # Renombrar a los nombres que espera el resto del código
+    df = df.rename(columns={
+        "date": "Date",
+        "home_team": "HomeTeam",
+        "away_team": "AwayTeam",
+        "fthg": "FTHG",
+        "ftag": "FTAG",
+        "ftr": "FTR",
+        "hc": "HC",
+        "ac": "AC",
+        "b365h": "B365H",
+        "b365d": "B365D",
+        "b365a": "B365A",
+    })
 
     for col in ["HomeTeam", "AwayTeam"]:
         df[col] = df[col].apply(_normalize_fd_team)
@@ -51,9 +85,34 @@ def load_historical_matches(db_name: str) -> pd.DataFrame:
 
 
 def load_matches(db_name: str) -> pd.DataFrame:
-    """Carga partidos actuales desde la colección betplay de MongoDB."""
-    db = MongoConfig.get_db(db_name)
-    df = pd.DataFrame(list(db["betplay"].find({}, {"_id": 0})))
+    """Carga partidos actuales desde la tabla betplay de PostgreSQL."""
+    league_id = PostgresConfig.get_league_id(db_name)
+    conn = PostgresConfig.get_connection()
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                SELECT event_id AS id, registered_at AS fecha_registro,
+                       event_at AS fecha_evento, league_name AS liga,
+                       match_name AS partido, odds
+                FROM betplay
+                WHERE league_id = %s
+                """,
+                (league_id,),
+            )
+            cols = [d[0] for d in cur.description]
+            rows = cur.fetchall()
+    finally:
+        PostgresConfig.put_connection(conn)
+
+    if not rows:
+        return pd.DataFrame()
+
+    df = pd.DataFrame(rows, columns=cols)
+
+    # Expandir columna JSONB `odds` al nivel del DataFrame
+    odds_df = pd.json_normalize(df["odds"].tolist())
+    df = pd.concat([df.drop(columns=["odds"]), odds_df], axis=1)
 
     df[["home_team", "away_team"]] = df["partido"].str.split(" - ", expand=True)
     df["home_team"] = df["home_team"].apply(normalize_team)

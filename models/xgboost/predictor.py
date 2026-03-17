@@ -4,7 +4,7 @@ from datetime import datetime, timezone, timedelta
 import pandas as pd
 
 from models.xgboost.data_loader import load_historical_matches, load_matches
-from models.xgboost.odds_utils import implied_prob, detect_value, devig, VALUE_THRESHOLD
+from models.xgboost.odds_utils import devig, VALUE_THRESHOLD
 from models.xgboost.feature_engineer import build_match_features
 from models.xgboost.model import XGBoostResult
 from infrastructure.telegram.telegram_notifier import TelegramNotifier

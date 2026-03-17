@@ -13,13 +13,6 @@ H2H_DEFAULTS = {
 }
 
 
-def _points(result: str, is_home: bool) -> int:
-    if result == "H":
-        return 3 if is_home else 0
-    if result == "A":
-        return 0 if is_home else 3
-    return 1
-
 
 def _team_stats(team: str, before_date, df: pd.DataFrame, n: int = WINDOW) -> dict:
     """Stats de forma de un equipo en sus últimos N partidos antes de una fecha.

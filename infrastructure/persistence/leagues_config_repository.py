@@ -1,32 +1,57 @@
-from infrastructure.persistence.mongo_config import MongoConfig
+import logging
 
-CONFIG_DB = "config"
-LEAGUES_COLLECTION = "leagues"
+from infrastructure.persistence.postgres_config import PostgresConfig
+
+logger = logging.getLogger(__name__)
 
 
 class LeaguesConfigRepository:
-    def __init__(self):
-        self.collection = MongoConfig.get_db(CONFIG_DB)[LEAGUES_COLLECTION]
-
-    def save(self, league_db: str, term_key: str, league_slug: str, name: str, betplay_path: str):
-        """Inserta o actualiza la configuración de una liga"""
-        self.collection.update_one(
-            {"league_db": league_db},
-            {"$set": {
-                "league_db": league_db,
-                "term_key": term_key,
-                "league_slug": league_slug,
-                "betplay_path": betplay_path,
-                "name": name,
-            }},
-            upsert=True
-        )
-        print(f"✅ Config guardada: {name}")
+    def save(
+        self,
+        league_db: str,
+        term_key: str,
+        league_slug: str,
+        name: str,
+        betplay_path: str,
+    ) -> None:
+        """Inserta o actualiza la configuración de una liga."""
+        conn = PostgresConfig.get_connection()
+        try:
+            with conn.cursor() as cur:
+                cur.execute(
+                    """
+                    INSERT INTO leagues (league_db, term_key, league_slug, betplay_path, name)
+                    VALUES (%s, %s, %s, %s, %s)
+                    ON CONFLICT (league_db) DO UPDATE
+                        SET term_key     = EXCLUDED.term_key,
+                            league_slug  = EXCLUDED.league_slug,
+                            betplay_path = EXCLUDED.betplay_path,
+                            name         = EXCLUDED.name
+                    """,
+                    (league_db, term_key, league_slug, betplay_path, name),
+                )
+            conn.commit()
+            logger.info("Config guardada: %s", name)
+        except Exception:
+            conn.rollback()
+            raise
+        finally:
+            PostgresConfig.put_connection(conn)
 
     def find_active(self) -> list[dict]:
-        """Retorna solo las ligas con active=True"""
-        return list(self.collection.find({"active": True}, {"_id": 0}))
+        """Retorna solo las ligas con active=True."""
+        return self._query("SELECT * FROM leagues WHERE active = TRUE")
 
     def find_all(self) -> list[dict]:
-        """Retorna todas las ligas configuradas"""
-        return list(self.collection.find({}, {"_id": 0}))
+        """Retorna todas las ligas configuradas."""
+        return self._query("SELECT * FROM leagues")
+
+    def _query(self, sql: str) -> list[dict]:
+        conn = PostgresConfig.get_connection()
+        try:
+            with conn.cursor() as cur:
+                cur.execute(sql)
+                cols = [d[0] for d in cur.description]
+                return [dict(zip(cols, row)) for row in cur.fetchall()]
+        finally:
+            PostgresConfig.put_connection(conn)

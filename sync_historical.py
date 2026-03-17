@@ -1,9 +1,9 @@
 """
-Sincroniza datos históricos de football-data.co.uk en MongoDB.
+Sincroniza datos históricos de football-data.co.uk en PostgreSQL.
 
 Uso:
-  uv run python sync_historical.py          # descarga completa (10 temporadas)
-  uv run python sync_historical.py --update # solo actualiza la temporada actual
+  python sync_historical.py          # descarga completa (10 temporadas)
+  python sync_historical.py --update # solo actualiza la temporada actual
 """
 import sys
 
