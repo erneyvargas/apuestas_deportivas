@@ -10,7 +10,8 @@ CREATE TABLE IF NOT EXISTS leagues (
     betplay_path    VARCHAR(200),
     name            VARCHAR(200),
     active          BOOLEAN DEFAULT FALSE,
-    api_football_id INTEGER
+    api_football_id INTEGER,
+    logo_url        VARCHAR(500)
 );
 
 -- Cuotas Betplay (una fila por evento, se actualiza en cada ejecución)

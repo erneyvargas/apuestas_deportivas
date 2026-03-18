@@ -38,6 +38,42 @@ class LeaguesConfigRepository:
         finally:
             PostgresConfig.put_connection(conn)
 
+    def get_logo_url(self, league_db: str) -> str | None:
+        """Retorna el logo_url cacheado en DB, o None si no está guardado."""
+        conn = PostgresConfig.get_connection()
+        try:
+            with conn.cursor() as cur:
+                cur.execute(
+                    "SELECT logo_url, api_football_id FROM leagues WHERE league_db = %s",
+                    (league_db,),
+                )
+                row = cur.fetchone()
+                if row is None:
+                    return None
+                logo_url, api_football_id = row
+                if logo_url:
+                    return logo_url
+                # No hay caché — intentar obtenerla de API-Football
+                if not api_football_id:
+                    return None
+                from infrastructure.api_football.api_football_client import APIFootballClient
+                fetched = APIFootballClient().get_league_logo(api_football_id)
+                if fetched:
+                    self._cache_logo_url(league_db, fetched, cur)
+                    conn.commit()
+                return fetched
+        except Exception:
+            conn.rollback()
+            return None
+        finally:
+            PostgresConfig.put_connection(conn)
+
+    def _cache_logo_url(self, league_db: str, url: str, cur) -> None:
+        cur.execute(
+            "UPDATE leagues SET logo_url = %s WHERE league_db = %s",
+            (url, league_db),
+        )
+
     def find_active(self) -> list[dict]:
         """Retorna solo las ligas con active=True."""
         return self._query("SELECT * FROM leagues WHERE active = TRUE")

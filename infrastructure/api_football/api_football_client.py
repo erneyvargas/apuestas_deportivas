@@ -57,3 +57,13 @@ class APIFootballClient:
             "league": league_id,
             "season": season,
         })
+
+    def get_league_logo(self, api_football_id: int) -> str | None:
+        """Retorna la URL del logo de una liga según su ID en API-Football."""
+        results = self._get("leagues", {"id": api_football_id})
+        if not results:
+            return None
+        try:
+            return results[0]["league"]["logo"]
+        except (KeyError, IndexError):
+            return None

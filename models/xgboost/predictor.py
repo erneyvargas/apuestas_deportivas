@@ -8,7 +8,9 @@ from models.xgboost.odds_utils import devig, VALUE_THRESHOLD
 from models.xgboost.feature_engineer import build_match_features
 from models.xgboost.model import XGBoostResult
 from infrastructure.telegram.telegram_notifier import TelegramNotifier
+from infrastructure.telegram.card_generator import generate_match_card
 from infrastructure.groq.groq_client import generate_match_explanation
+from infrastructure.persistence.leagues_config_repository import LeaguesConfigRepository
 from application.football_data_org.h2h_service import H2HService
 
 logger = logging.getLogger(__name__)
@@ -72,6 +74,7 @@ def run(db_name: str):
 
     notifier = TelegramNotifier()
     h2h_service = H2HService(db_name)
+    league_logo_url = LeaguesConfigRepository().get_logo_url(db_name)
 
     value_bets_total = 0
 
@@ -130,7 +133,7 @@ def run(db_name: str):
         if not explanation:
             explanation = _generate_explanation(home, away, winner_key, X, h2h_doc)
         _notify(notifier, match["partido"], match.get("fecha_evento", ""), match.get("liga", ""),
-                pred, labels, explanation, odds, fair, value_bets)
+                pred, labels, explanation, odds, fair, value_bets, league_logo_url)
 
     logger.info("Predictor finalizado — %d value bets detectados en %d partidos",
                 value_bets_total, len(df_matches))
@@ -237,59 +240,83 @@ def _generate_explanation(home: str, away: str, winner_key: str, X, h2h_doc: dic
     return " · ".join(reasons)
 
 
-def _bar(prob: float, width: int = 10) -> str:
+_GRADIENT = ["🟥", "🟧", "🟨", "🟨", "🟩", "🟩", "🟦", "🟦"]
+
+
+def _bar(prob: float, width: int = 8, is_value: bool = False, market: bool = False) -> str:
     filled = round(prob * width)
-    return "█" * filled + "░" * (width - filled)
+    if market:
+        blocks = ["⬛"] * filled
+    elif is_value:
+        blocks = ["🟩"] * filled
+    else:
+        blocks = [_GRADIENT[i] for i in range(min(filled, width))]
+    return "".join(blocks) + "⬜" * (width - filled)
 
 
 def _notify(notifier: TelegramNotifier, partido: str, fecha: str, liga: str, pred: dict,
             labels: dict, explanation: str, odds: dict, fair: dict,
-            value_bets: list = None):
-    sep = "━━━━━━━━━━━━━━━━━━━━━━━━"
+            value_bets: list = None, league_logo_url: str | None = None):
+    SEP  = "━━━━━━━━━━━━━━━━━━━━━━━━━"
+    SEP2 = "┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄"
     is_value = bool(value_bets)
-
-    header = "🔥 <b>VALUE BET</b>" if is_value else "📋 <b>Análisis</b>"
 
     EMOJIS = {"home_win": "🏠", "draw": "🤝", "away_win": "✈️"}
     vb_set = {label for label, *_ in (value_bets or [])}
 
+    def _fmt_odd(o):  return f"<code>{o:.2f}</code>" if o else "<code>—</code>"
+    def _fmt_fair(f): return f"{f*100:.0f}%" if f else "—"
+
+    header = "🔥 <b>VALUE BET DETECTADO</b>" if is_value else "📋 <b>Análisis de partido</b>"
+
     lines = [
         header,
-        "",
+        SEP,
         f"⚽ <b>{partido}</b>",
-        f"📅 {_format_date(fecha)}  ·  {liga}",
-        sep,
+        f"📅 {_format_date(fecha)}",
+        f"🏆 {liga}",
+        SEP,
     ]
 
     for key in RESULT_KEYS:
         label   = labels[key]
         model_p = pred[key]
-        bar     = _bar(model_p)
-        pct     = f"{model_p*100:.0f}%"
+        fair_p  = fair[key]
+        odd     = odds[key]
+        is_vb   = label in vb_set and odd
+        bar     = _bar(model_p, is_value=is_vb)
 
-        if label in vb_set and odds[key]:
-            edge   = (model_p * odds[key] - 1) * 100
-            suffix = f"  ✅ <b>+{edge:.0f}%</b>"
-        else:
-            suffix = ""
+        bar_market = _bar(fair_p, market=True) if fair_p else "⬜" * 8
 
-        lines.append(f"{EMOJIS[key]} {label}  {bar}  <b>{pct}</b>{suffix}")
+        lines.append(f"{EMOJIS[key]} <b>{label}</b>")
+        lines.append(f"   {bar}  <b>{model_p*100:.0f}%</b>  modelo")
+        lines.append(f"   {bar_market}  <b>{_fmt_fair(fair_p)}</b>  betplay  {_fmt_odd(odd)}")
+        if is_vb:
+            edge = (model_p * odd - 1) * 100
+            lines.append(f"   ✅ <b>Edge: +{edge:.0f}%</b>")
+        lines.append("")
 
-    lines.append(sep)
+    if value_bets:
+        lines += [SEP2, "💰 <b>Apuesta recomendada</b>"]
+        for label, prob, odd, _ in value_bets:
+            edge = (prob * odd - 1) * 100
+            lines.append(
+                f"   🎯 <b>{label}</b>  ·  @<b>{odd:.2f}</b>"
+                f"  ·  modelo <b>{prob*100:.0f}%</b>  ·  edge <b>+{edge:.0f}%</b>"
+            )
+        lines.append("")
 
-    def _fmt_odd(o): return f"{o:.2f}" if o else "N/A"
-    def _fmt_fair(f): return f"{f*100:.0f}%" if f else "N/A"
+    try:
+        card_bytes = generate_match_card(
+            partido, _format_date(fecha), liga,
+            pred, labels, odds, fair, value_bets, league_logo_url,
+        )
+        notifier.send_photo_bytes(card_bytes)
+    except Exception as e:
+        logger.warning("No se pudo generar el card — usando texto: %s", e)
+        notifier.send("\n".join(lines))
+        return
 
-    odds_str = "  /  ".join(_fmt_odd(odds[k]) for k in RESULT_KEYS)
-    fair_str = "  /  ".join(_fmt_fair(fair[k]) for k in RESULT_KEYS)
-
-    lines += [
-        f"Cuotas  {odds_str}",
-        f"Fair    {fair_str}",
-        sep,
-        f"💡 <i>{explanation}</i>",
-        sep,
-    ]
-
-    notifier.send("\n".join(lines))
+    # Explicación como mensaje de texto independiente
+    notifier.send(f"💡 <i>{explanation}</i>")
     logger.debug("Notificación enviada para '%s'", partido)
