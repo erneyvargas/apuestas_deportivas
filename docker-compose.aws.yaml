@@ -1,0 +1,25 @@
+# Cloud EC2: app apuntando a RDS. Imagen desde ECR.
+#
+# Uso en EC2 (dentro de user_data / systemd):
+#   ECR_IMAGE=<accountid>.dkr.ecr.<region>.amazonaws.com/apuestas-app:latest \
+#   POSTGRES_URI=$(aws ssm get-parameter --name /apuestas-dev/postgres_uri ... ) \
+#   docker compose -f docker-compose.aws.yaml up -d
+#
+# Variables requeridas:
+#   ECR_IMAGE     — URI completa de la imagen (ej: 123.dkr.ecr.us-east-1.amazonaws.com/apuestas-app:latest)
+#   POSTGRES_URI  — conn string a RDS (viene de SSM)
+
+services:
+  app:
+    image: ${ECR_IMAGE}
+    container_name: apuestas-app
+    restart: always
+    ports:
+      - "8001:8001"
+    environment:
+      POSTGRES_URI: ${POSTGRES_URI}
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
