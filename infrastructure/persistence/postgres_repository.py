@@ -1,9 +1,10 @@
 import logging
+import math
 from contextlib import contextmanager
 from typing import List, Tuple
 
 import pandas as pd
-from psycopg2.extras import Json
+from psycopg2.extras import Json, execute_values
 
 from infrastructure.persistence.postgres_config import PostgresConfig
 
@@ -36,7 +37,6 @@ def _clean(val):
     if val is None:
         return None
     try:
-        import math
         if math.isnan(float(val)):
             return None
     except (TypeError, ValueError):
@@ -113,44 +113,66 @@ class PostgresRepository:
 
     def _save_betplay(self, df: pd.DataFrame, clear: bool) -> int:
         rows = df.to_dict("records")
+        values = []
+        for row in rows:
+            base = {k: _clean(row.get(k)) for k in _BETPLAY_BASE}
+            odds = {
+                k: _clean(v)
+                for k, v in row.items()
+                if k not in _BETPLAY_BASE
+            }
+            values.append((
+                base["id"],
+                self._league_id,
+                base["fecha_registro"],
+                base["fecha_evento"],
+                base["liga"],
+                base["partido"],
+                Json(odds),
+            ))
+
         with self._cursor() as cur:
-            count = 0
-            for row in rows:
-                base = {k: _clean(row.get(k)) for k in _BETPLAY_BASE}
-                odds = {
-                    k: _clean(v)
-                    for k, v in row.items()
-                    if k not in _BETPLAY_BASE
-                }
-                cur.execute(
-                    """
-                    INSERT INTO betplay_odds_history
-                        (event_id, league_id, registered_at, event_at, league_name, match_name, odds)
-                    VALUES (%s, %s, %s, %s, %s, %s, %s)
-                    ON CONFLICT (event_id) DO UPDATE
-                        SET league_id     = EXCLUDED.league_id,
-                            registered_at = EXCLUDED.registered_at,
-                            event_at      = EXCLUDED.event_at,
-                            league_name   = EXCLUDED.league_name,
-                            match_name    = EXCLUDED.match_name,
-                            odds          = EXCLUDED.odds
-                    """,
-                    (
-                        base["id"],
-                        self._league_id,
-                        base["fecha_registro"],
-                        base["fecha_evento"],
-                        base["liga"],
-                        base["partido"],
-                        Json(odds),
-                    ),
-                )
-                count += 1
-        return count
+            execute_values(
+                cur,
+                """
+                INSERT INTO betplay_odds_history
+                    (event_id, league_id, registered_at, event_at, league_name, match_name, odds)
+                VALUES %s
+                ON CONFLICT (event_id) DO UPDATE
+                    SET league_id     = EXCLUDED.league_id,
+                        registered_at = EXCLUDED.registered_at,
+                        event_at      = EXCLUDED.event_at,
+                        league_name   = EXCLUDED.league_name,
+                        match_name    = EXCLUDED.match_name,
+                        odds          = EXCLUDED.odds
+                """,
+                values,
+                page_size=500,
+            )
+        return len(values)
 
     def _save_historical_matches(self, df: pd.DataFrame, clear: bool) -> int:
         df = df.rename(columns=_HISTORICAL_COL_MAP)
         rows = df.to_dict("records")
+
+        values = [
+            (
+                self._league_id,
+                _clean(row.get("date")),
+                _clean(row.get("home_team")),
+                _clean(row.get("away_team")),
+                _clean(row.get("fthg")),
+                _clean(row.get("ftag")),
+                _clean(row.get("ftr")),
+                _clean(row.get("hc")),
+                _clean(row.get("ac")),
+                _clean(row.get("b365h")),
+                _clean(row.get("b365d")),
+                _clean(row.get("b365a")),
+                _clean(row.get("season")),
+            )
+            for row in rows
+        ]
 
         with self._cursor() as cur:
             if clear:
@@ -159,30 +181,15 @@ class PostgresRepository:
                     (self._league_id,),
                 )
 
-            count = 0
-            for row in rows:
-                cur.execute(
-                    """
-                    INSERT INTO historical_matches
-                        (league_id, date, home_team, away_team,
-                         fthg, ftag, ftr, hc, ac, b365h, b365d, b365a, season)
-                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
-                    """,
-                    (
-                        self._league_id,
-                        _clean(row.get("date")),
-                        _clean(row.get("home_team")),
-                        _clean(row.get("away_team")),
-                        _clean(row.get("fthg")),
-                        _clean(row.get("ftag")),
-                        _clean(row.get("ftr")),
-                        _clean(row.get("hc")),
-                        _clean(row.get("ac")),
-                        _clean(row.get("b365h")),
-                        _clean(row.get("b365d")),
-                        _clean(row.get("b365a")),
-                        _clean(row.get("season")),
-                    ),
-                )
-                count += 1
-        return count
+            execute_values(
+                cur,
+                """
+                INSERT INTO historical_matches
+                    (league_id, date, home_team, away_team,
+                     fthg, ftag, ftr, hc, ac, b365h, b365d, b365a, season)
+                VALUES %s
+                """,
+                values,
+                page_size=500,
+            )
+        return len(values)

@@ -1,4 +1,5 @@
 import logging
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone, timedelta
 
 import pandas as pd
@@ -80,6 +81,7 @@ def run(db_name: str):
     league_logo_url = LeaguesConfigRepository().get_logo_url(db_name)
 
     value_bets_total = 0
+    pending_notifications = []
 
     for _, match in df_matches.iterrows():
         home = match["home_team"]
@@ -103,7 +105,6 @@ def run(db_name: str):
         fair_h, fair_d, fair_a = devig(odd_1, odd_x, odd_2)
         fair = {"home_win": fair_h, "draw": fair_d, "away_win": fair_a}
 
-        # Log tabla de predicción
         logger.info(
             "%s vs %s  |  H=%.1f%%(%.2f)  D=%.1f%%(%.2f)  A=%.1f%%(%.2f)",
             home, away,
@@ -139,15 +140,39 @@ def run(db_name: str):
         winner_key = max(pred, key=pred.get)
         stats = {col: X[col].iloc[0] for col in X.columns}
         h2h_summary = h2h_doc.get("summary") if h2h_doc else None
-        explanation = generate_match_explanation(home, away, winner_key, stats, h2h_summary)
-        if not explanation:
-            explanation = _generate_explanation(home, away, winner_key, X, h2h_doc)
-        _notify(notifier, match["partido"], match.get("fecha_evento", ""), match.get("liga", ""),
-                pred, labels, explanation, odds, fair, value_bets, league_logo_url)
+
+        pending_notifications.append({
+            "match": match, "pred": pred, "labels": labels, "odds": odds, "fair": fair,
+            "value_bets": value_bets, "winner_key": winner_key, "stats": stats, "X": X,
+            "h2h_doc": h2h_doc, "h2h_summary": h2h_summary,
+            "home": home, "away": away, "partido_key": partido_key,
+        })
         _last_notified[partido_key] = now
-        # Purgar entradas expiradas para evitar crecimiento ilimitado
-        for k in [k for k, v in _last_notified.items() if now - v >= _NOTIFICATION_INTERVAL]:
-            del _last_notified[k]
+
+    def _dispatch(item):
+        explanation = generate_match_explanation(
+            item["home"], item["away"], item["winner_key"],
+            item["stats"], item["h2h_summary"],
+        )
+        if not explanation:
+            explanation = _generate_explanation(
+                item["home"], item["away"], item["winner_key"],
+                item["X"], item["h2h_doc"],
+            )
+        _notify(
+            notifier, item["match"]["partido"], item["match"].get("fecha_evento", ""),
+            item["match"].get("liga", ""), item["pred"], item["labels"], explanation,
+            item["odds"], item["fair"], item["value_bets"], league_logo_url,
+        )
+
+    if pending_notifications:
+        logger.info("Despachando %d notificaciones en paralelo", len(pending_notifications))
+        with ThreadPoolExecutor(max_workers=3) as pool:
+            list(pool.map(_dispatch, pending_notifications))
+
+    now = datetime.now(timezone.utc)
+    for k in [k for k, v in _last_notified.items() if now - v >= _NOTIFICATION_INTERVAL]:
+        del _last_notified[k]
 
     logger.info("Predictor finalizado — %d value bets detectados en %d partidos",
                 value_bets_total, len(df_matches))
