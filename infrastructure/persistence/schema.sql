@@ -1,7 +1,7 @@
 -- Schema PostgreSQL para apuestas_deportivas
 -- Compatible con PostgreSQL 18
 
--- Ligas configuradas (equivalente a config.leagues en MongoDB)
+-- Ligas configuradas
 CREATE TABLE IF NOT EXISTS leagues (
     id              SERIAL PRIMARY KEY,
     league_db       VARCHAR(100) NOT NULL UNIQUE,

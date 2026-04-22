@@ -5,7 +5,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ## Commands
 
 ```bash
-# Start MongoDB (required before running)
+# Start PostgreSQL (required before running)
 docker compose up -d
 
 # Run the main pipeline
@@ -16,7 +16,7 @@ uv add <package>
 ```
 
 Environment variables (with defaults):
-- `MONGO_URI` → `mongodb://root:pass134@localhost:27017/`
+- `POSTGRES_URI` → `postgresql://postgres:postgres@localhost:5432/apuestas_deportivas`
 - `DB_NAME` → `apuestas_deportivas`
 
 ## Architecture
@@ -34,15 +34,16 @@ main.py        ← Entry point
 - **FBRef** — `infrastructure/fbref/fbref_data.py`: Scrapes football statistics tables via `pandas.read_html` from the FBRef Premier League page.
 
 **Persistence:**
-- `infrastructure/persistence/mongo_config.py` — MongoDB connection via `pymongo`.
-- `infrastructure/persistence/mongo_db_repository.py` — `save_dataframe_to_collection()` converts a pandas DataFrame to records and inserts them into a named MongoDB collection. Supports optional pre-insert clear.
+- `infrastructure/persistence/postgres_config.py` — PostgreSQL connection pool via `psycopg2`.
+- `infrastructure/persistence/postgres_repository.py` — `save_dataframe_to_collection()` converts a pandas DataFrame to records and inserts them into a named PostgreSQL table. Supports optional pre-insert clear.
+- `infrastructure/persistence/schema.sql` — PostgreSQL 18 schema, loaded on first container start.
 
 **Application services:**
-- `BetplayService` — Fetches all football leagues from Betplay, then for each league fetches full match data (merging 8 bet-category DataFrames) and upserts to a per-league MongoDB collection.
+- `BetplayService` — Fetches all football leagues from Betplay, then for each league fetches full match data (merging 8 bet-category DataFrames) and upserts to a per-league PostgreSQL table.
 - `FbrefService` — Fetches and prints FBRef DataFrames (currently commented out in `main.py`).
 
 **Data flow (Betplay):**
-1. `fetch_leagues()` → list of groups → filter by `sport == FOOTBALL` → save to `ligas_betplay` collection
-2. For each league: `get_full_data(pathTermId)` → `get_datos_partidos()` merges base match DataFrame with 8 category DataFrames → saved to a per-league-named collection
+1. `fetch_leagues()` → list of groups → filter by `sport == FOOTBALL` → save to `ligas_betplay` table
+2. For each league: `get_full_data(pathTermId)` → `get_datos_partidos()` merges base match DataFrame with 8 category DataFrames → saved to a per-league-named table
 
 Bet category IDs used in API calls: `11942`, `12220`, `11927`, `11929`, `12319`, `11930`, `11931`, `19260`.

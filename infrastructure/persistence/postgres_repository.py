@@ -65,7 +65,7 @@ class PostgresRepository:
             PostgresConfig.put_connection(conn)
 
     # ------------------------------------------------------------------ #
-    #  Interfaz pública (compatible con MongoDBRepository)                #
+    #  Interfaz pública                                                   #
     # ------------------------------------------------------------------ #
 
     def save_dataframe_to_collection(

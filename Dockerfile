@@ -1,17 +1,30 @@
-FROM python:3.13-slim
+FROM python:3.13-slim AS builder
 
 COPY --from=ghcr.io/astral-sh/uv:latest /uv /usr/local/bin/uv
 
-# Virtualenv fuera del directorio montado para no pisarlo con permisos root
-ENV UV_PROJECT_ENVIRONMENT=/venv
+ENV UV_PROJECT_ENVIRONMENT=/venv \
+    UV_COMPILE_BYTECODE=1 \
+    UV_LINK_MODE=copy \
+    UV_NO_CACHE=1
 
 WORKDIR /app
 
 COPY pyproject.toml uv.lock ./
-RUN uv sync --frozen --no-dev
+RUN uv sync --frozen --no-dev --no-install-project
+
+
+FROM python:3.13-slim
+
+COPY --from=builder /venv /venv
+
+ENV PATH="/venv/bin:$PATH" \
+    PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1
+
+WORKDIR /app
 
 COPY . .
 
 EXPOSE 8001
 
-CMD ["uv", "run", "python", "main.py"]
+CMD ["python", "main.py"]

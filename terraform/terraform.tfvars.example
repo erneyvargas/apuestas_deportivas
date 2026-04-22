@@ -1,0 +1,19 @@
+aws_region   = "us-east-1"
+project_name = "apuestas"
+environment  = "dev"
+
+vpc_cidr = "10.20.0.0/16"
+
+# DB free tier
+db_name              = "apuestas_deportivas"
+db_username          = "apuestas_admin"
+db_instance_class    = "db.t3.micro"
+db_allocated_storage = 20
+db_engine_version    = "18.0"
+
+# EC2 free tier
+ec2_instance_type = "t3.micro"
+ssh_key_name      = "mi-llave"            # crear antes en Consola EC2 > Key pairs
+allowed_ssh_cidr  = "190.0.0.0/32"        # tu IP publica /32 (curl ifconfig.me)
+
+container_image_tag = "latest"
