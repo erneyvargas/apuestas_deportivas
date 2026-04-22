@@ -30,7 +30,7 @@ else
 fi
 
 log "4/7 Copiando schema + data a EC2"
-scp_ec2 "$PROJECT_ROOT/infrastructure/persistence/schema.sql" \
+scp_ec2 "$PROJECT_ROOT/src/apuestas/infrastructure/persistence/schema.sql" \
         ec2-user@"$IP":/tmp/schema.sql
 scp_ec2 /tmp/apuestas_schema_data.sql ec2-user@"$IP":/tmp/data.sql
 

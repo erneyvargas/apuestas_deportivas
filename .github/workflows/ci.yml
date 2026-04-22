@@ -27,7 +27,7 @@ jobs:
         run: uv sync --frozen
 
       - name: Compile check
-        run: uv run python -m compileall -q application infrastructure main.py
+        run: uv run python -m compileall -q src/apuestas
 
       - name: Docker build (no push)
         uses: docker/build-push-action@v6

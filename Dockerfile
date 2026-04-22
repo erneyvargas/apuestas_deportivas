@@ -10,7 +10,8 @@ ENV UV_PROJECT_ENVIRONMENT=/venv \
 WORKDIR /app
 
 COPY pyproject.toml uv.lock ./
-RUN uv sync --frozen --no-dev --no-install-project
+COPY src ./src
+RUN uv sync --frozen --no-dev
 
 
 FROM python:3.13-slim
@@ -27,4 +28,4 @@ COPY . .
 
 EXPOSE 8001
 
-CMD ["python", "main.py"]
+CMD ["python", "-m", "apuestas.entrypoints.api"]
