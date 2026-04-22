@@ -40,3 +40,13 @@ resource "aws_security_group_rule" "db_ingress_from_app" {
   security_group_id        = aws_security_group.db.id
   description              = "Postgres desde EC2 app"
 }
+
+resource "aws_security_group_rule" "db_ingress_from_me" {
+  type              = "ingress"
+  from_port         = 5432
+  to_port           = 5432
+  protocol          = "tcp"
+  cidr_blocks       = [var.allowed_ssh_cidr]
+  security_group_id = aws_security_group.db.id
+  description       = "Postgres desde mi IP publica"
+}

@@ -49,10 +49,16 @@ resource "aws_route_table_association" "public" {
   route_table_id = aws_route_table.public.id
 }
 
-# Route table private sin salida a internet (RDS no la necesita)
+# Route table para subnets de RDS — ahora con IGW para publicly_accessible
 resource "aws_route_table" "private_db" {
   vpc_id = aws_vpc.main.id
-  tags   = { Name = "${local.name_prefix}-rt-db" }
+
+  route {
+    cidr_block = "0.0.0.0/0"
+    gateway_id = aws_internet_gateway.main.id
+  }
+
+  tags = { Name = "${local.name_prefix}-rt-db" }
 }
 
 resource "aws_route_table_association" "private_db" {

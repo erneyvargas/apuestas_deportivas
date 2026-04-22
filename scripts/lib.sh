@@ -70,3 +70,25 @@ wait_for_rds() {
     --db-instance-identifier "$(rds_id)" --region "$REGION"
   ok "RDS disponible"
 }
+
+# Detecta IP publica actual, compara con tfvars, actualiza SGs si cambio
+fix_my_ip() {
+  local tfvars="$TF_DIR/terraform.tfvars"
+  local current
+  current="$(curl -s --max-time 5 ifconfig.me)" || die "No pude obtener IP publica"
+  local current_cidr="${current}/32"
+  local tfvars_cidr
+  tfvars_cidr="$(grep -E '^allowed_ssh_cidr' "$tfvars" | sed -E 's/.*"([^"]+)".*/\1/')"
+
+  if [ "$current_cidr" = "$tfvars_cidr" ]; then
+    ok "IP sin cambios ($current)"
+    return 0
+  fi
+
+  log "IP cambio: $tfvars_cidr -> $current_cidr, actualizando SG..."
+  sed -i "s|allowed_ssh_cidr  = \".*\"|allowed_ssh_cidr  = \"$current_cidr\"|" "$tfvars"
+  tf apply -auto-approve \
+    -target=aws_security_group.app \
+    -target=aws_security_group_rule.db_ingress_from_me >/dev/null
+  ok "SG actualizado a $current"
+}

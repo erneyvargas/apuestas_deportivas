@@ -36,3 +36,5 @@ services:
 
 volumes:
   postgres_data:
+    external: true
+    name: apuestas_deportivas_postgres_data
