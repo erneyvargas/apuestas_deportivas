@@ -17,6 +17,9 @@ logger = logging.getLogger(__name__)
 
 RESULT_KEYS = ["home_win", "draw", "away_win"]
 
+_NOTIFICATION_INTERVAL = timedelta(hours=12)
+_last_notified: dict[str, datetime] = {}
+
 DAYS_ES = ["Lun", "Mar", "Mié", "Jue", "Vie", "Sáb", "Dom"]
 MONTHS_ES = ["", "Ene", "Feb", "Mar", "Abr", "May", "Jun",
              "Jul", "Ago", "Sep", "Oct", "Nov", "Dic"]
@@ -126,6 +129,13 @@ def run(db_name: str):
         if not value_bets:
             continue
 
+        partido_key = match["partido"]
+        now = datetime.now(timezone.utc)
+        last = _last_notified.get(partido_key)
+        if last and now - last < _NOTIFICATION_INTERVAL:
+            logger.debug("Notificación omitida para '%s' (dentro del intervalo de %s)", partido_key, _NOTIFICATION_INTERVAL)
+            continue
+
         winner_key = max(pred, key=pred.get)
         stats = {col: X[col].iloc[0] for col in X.columns}
         h2h_summary = h2h_doc.get("summary") if h2h_doc else None
@@ -134,6 +144,10 @@ def run(db_name: str):
             explanation = _generate_explanation(home, away, winner_key, X, h2h_doc)
         _notify(notifier, match["partido"], match.get("fecha_evento", ""), match.get("liga", ""),
                 pred, labels, explanation, odds, fair, value_bets, league_logo_url)
+        _last_notified[partido_key] = now
+        # Purgar entradas expiradas para evitar crecimiento ilimitado
+        for k in [k for k, v in _last_notified.items() if now - v >= _NOTIFICATION_INTERVAL]:
+            del _last_notified[k]
 
     logger.info("Predictor finalizado — %d value bets detectados en %d partidos",
                 value_bets_total, len(df_matches))

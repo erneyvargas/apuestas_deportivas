@@ -62,11 +62,11 @@ def create_scheduler() -> BackgroundScheduler:
     scheduler.add_job(
         run_betplay,
         "interval",
-        minutes=10,
+        hours=12,
         id="betplay",
         max_instances=1,
         coalesce=True,
-        misfire_grace_time=30,
+        misfire_grace_time=60,
     )
     scheduler.add_job(
         run_nightly,

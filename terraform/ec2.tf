@@ -35,6 +35,13 @@ locals {
     # Pull + run (reinicia si el contenedor falla)
     docker pull "$REPO:${var.container_image_tag}" || true
 
+    # Env file (evita que systemd interprete % en el URI)
+    umask 077
+    cat >/etc/apuestas-app.env <<ENV
+    POSTGRES_URI=$POSTGRES_URI
+    ENV
+    chmod 600 /etc/apuestas-app.env
+
     cat >/etc/systemd/system/apuestas-app.service <<'UNIT'
     [Unit]
     Description=Apuestas app container
@@ -46,7 +53,8 @@ locals {
     RestartSec=10
     ExecStartPre=-/usr/bin/docker rm -f apuestas-app
     ExecStart=/usr/bin/docker run --rm --name apuestas-app \
-      -e POSTGRES_URI=__URI__ \
+      --env-file /etc/apuestas-app.env \
+      -p 8001:8001 \
       IMAGE_PLACEHOLDER
     ExecStop=/usr/bin/docker stop apuestas-app
 
@@ -54,7 +62,6 @@ locals {
     WantedBy=multi-user.target
     UNIT
 
-    sed -i "s|__URI__|$POSTGRES_URI|" /etc/systemd/system/apuestas-app.service
     sed -i "s|IMAGE_PLACEHOLDER|$REPO:${var.container_image_tag}|" /etc/systemd/system/apuestas-app.service
 
     systemctl daemon-reload

@@ -11,29 +11,39 @@ from matplotlib.patches import FancyBboxPatch
 
 logger = logging.getLogger(__name__)
 
-# ── Paleta ───────────────────────────────────────────────────────────────────
-BG        = "#0d1117"
-CARD      = "#161b22"
-BORDER    = "#30363d"
-TXT_PRI   = "#e6edf3"
-TXT_SEC   = "#8b949e"
-EMPTY     = "#21262d"
-VALUE_CLR = "#3fb950"
+# ── Paleta premium: Deep Navy + Gold ─────────────────────────────────────────
+BG        = "#060B18"   # fondo profundo navy
+CARD      = "#0C1529"   # superficie principal
+CARD_ALT  = "#0F1E38"   # superficie alternada (secciones pares)
+BORDER    = "#1C2E50"   # borde sutil azul
+BORDER_AC = "#2A5298"   # borde de acento
+TXT_PRI   = "#EDF2FF"   # blanco frío
+TXT_SEC   = "#6B88B5"   # azul-gris secundario
+EMPTY     = "#0A1628"   # relleno vacío de barras
+GOLD      = "#F0A500"   # oro premium
+GOLD_LT   = "#FFD166"   # oro claro
+BLUE_EL   = "#4080FF"   # azul eléctrico
+TEAL      = "#00C9A7"   # verde azulado (empate)
+RED_SOFT  = "#FF6B6B"   # rojo suave (visitante)
 
-# ── Colormaps ────────────────────────────────────────────────────────────────
+# ── Colormaps ─────────────────────────────────────────────────────────────────
+# Modelo → naranja
 MODEL_CMAP = LinearSegmentedColormap.from_list(
-    "model", ["#da3633", "#e67e22", "#f1c40f", "#3fb950", "#1f6feb"]
+    "model", ["#5C1E00", "#C04000", "#FF6B00", "#FF9E3D"],
 )
+# Value bet → naranja más brillante
 VALUE_CMAP = LinearSegmentedColormap.from_list(
-    "value", ["#1a5c2a", "#3fb950"]
+    "value", ["#7B2D00", "#E05000", "#FF8C00", GOLD_LT],
 )
+# Betplay → azul
 MARKET_CMAP = LinearSegmentedColormap.from_list(
-    "market", ["#3d4550", "#6e7681"]
+    "market", ["#07163A", "#1040A0", "#3D7FFF"],
 )
 
-RESULT_KEYS = ["home_win", "draw", "away_win"]
-LABELS_ICON = {"home_win": "LOCAL", "draw": "EMPATE", "away_win": "VISIT."}
-ICON_COLORS = {"home_win": "#4fc3f7", "draw": "#fff176", "away_win": "#ef9a9a"}
+RESULT_KEYS  = ["home_win", "draw", "away_win"]
+LABELS_ICON  = {"home_win": "LOCAL", "draw": "EMPATE", "away_win": "VISITA"}
+ICON_COLORS  = {"home_win": BLUE_EL, "draw": TEAL, "away_win": RED_SOFT}
+SECTION_BG   = {"home_win": "#0C1529", "draw": "#0F1E38", "away_win": "#0C1529"}
 
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
@@ -47,27 +57,28 @@ def _fetch_logo(logo_url: str):
         return None
 
 
-def _gradient_bar(ax, x0, y0, w, h, prob, cmap):
-    """Barra horizontal con degradado suave usando imshow."""
+def _gradient_bar(ax, x0, y0, w, h, prob, cmap, radius=0.003):
+    """Barra con degradado, fondo redondeado y clip preciso."""
     # Fondo vacío
-    ax.add_patch(mpatches.Rectangle(
-        (x0, y0), w, h, facecolor=EMPTY, edgecolor="none", zorder=2,
+    ax.add_patch(FancyBboxPatch(
+        (x0, y0), w, h,
+        boxstyle=f"round,pad={radius}",
+        facecolor=EMPTY, edgecolor="none", zorder=2,
     ))
-    filled_w = prob * w
-    if filled_w > 0.001:
-        gradient = np.linspace(0, 1, 512).reshape(1, -1)
-        img = ax.imshow(
-            gradient, aspect="auto", cmap=cmap,
-            extent=[x0, x0 + filled_w, y0, y0 + h],
-            zorder=3, origin="lower",
-        )
-        # Recortar al área del bar para evitar sangrado
-        clip = mpatches.Rectangle((x0, y0), filled_w, h, transform=ax.transData)
-        img.set_clip_path(clip)
+    filled_w = max(prob * w, 0.001)
+    gradient = np.linspace(0, 1, 512).reshape(1, -1)
+    img = ax.imshow(
+        gradient, aspect="auto", cmap=cmap,
+        extent=[x0, x0 + filled_w, y0, y0 + h],
+        zorder=3, origin="lower",
+    )
+    clip = mpatches.Rectangle((x0, y0), filled_w, h, transform=ax.transData)
+    img.set_clip_path(clip)
 
 
-def _separator(ax, y, x0=0.06, x1=0.94):
-    ax.axhline(y, xmin=x0, xmax=x1, color=BORDER, linewidth=0.8)
+
+def _sep(ax, y, x0=0.06, x1=0.94, alpha=0.4):
+    ax.axhline(y, xmin=x0, xmax=x1, color=BORDER_AC, linewidth=0.6, alpha=alpha)
 
 
 # ── Card principal ────────────────────────────────────────────────────────────
@@ -86,7 +97,7 @@ def generate_match_card(
     is_value = bool(value_bets)
     vb_set   = {lbl for lbl, *_ in (value_bets or [])}
 
-    fig_h = 9.5 if is_value else 8.0
+    fig_h = 10.0 if is_value else 8.5
     fig, ax = plt.subplots(figsize=(9, fig_h), dpi=150)
     fig.patch.set_facecolor(BG)
     ax.set_facecolor(BG)
@@ -94,57 +105,84 @@ def generate_match_card(
     ax.set_ylim(0, 1)
     ax.axis("off")
 
+    # ── Sombra exterior (efecto glow) ─────────────────────────────────────
+    for offset, alpha in [(0.008, 0.08), (0.004, 0.15)]:
+        ax.add_patch(FancyBboxPatch(
+            (0.03 - offset, 0.02 - offset),
+            0.94 + 2 * offset, 0.96 + 2 * offset,
+            boxstyle="round,pad=0.018",
+            facecolor=BLUE_EL, edgecolor="none",
+            alpha=alpha, zorder=0,
+        ))
+
     # ── Fondo card ────────────────────────────────────────────────────────
     ax.add_patch(FancyBboxPatch(
         (0.03, 0.02), 0.94, 0.96,
         boxstyle="round,pad=0.015",
-        facecolor=CARD, edgecolor=BORDER, linewidth=1.2,
+        facecolor=CARD, edgecolor=BORDER_AC,
+        linewidth=0.9, zorder=1,
     ))
 
-    # ── Franja superior ───────────────────────────────────────────────────
-    top_color = VALUE_CLR if is_value else "#1f6feb"
+    # ── Zona de cabecera: franja de acento + panel blanco ─────────────────
+    accent_clr = GOLD if is_value else BLUE_EL
+
+    # Franja de color delgada en la parte superior (indicador value / análisis)
     ax.add_patch(FancyBboxPatch(
-        (0.03, 0.915), 0.94, 0.065,
-        boxstyle="round,pad=0.015",
-        facecolor=top_color, edgecolor="none",
+        (0.03, 0.955), 0.94, 0.023,
+        boxstyle="round,pad=0.010",
+        facecolor=accent_clr, edgecolor="none", zorder=2,
+    ))
+    badge_label = "VALUE BET" if is_value else "ANÁLISIS"
+    ax.text(0.5, 0.970, badge_label,
+            color="#0C1529", fontsize=8.5, fontweight="bold",
+            ha="center", va="center", zorder=6)
+
+    # Panel blanco para logo + nombre del partido
+    hdr_y = 0.835
+    hdr_h = 0.118
+    ax.add_patch(FancyBboxPatch(
+        (0.03, hdr_y), 0.94, hdr_h,
+        boxstyle="round,pad=0.010",
+        facecolor="#FFFFFF", edgecolor="#E0E4EE",
+        linewidth=0.8, zorder=2,
     ))
 
-    # Logo dentro de la franja superior, usando AnnotationBbox
+    # Logo de liga sobre fondo blanco
     logo_img = _fetch_logo(league_logo_url) if league_logo_url else None
+    partido_x = 0.5
+
     if logo_img is not None:
-        imagebox = OffsetImage(logo_img, zoom=0.38)
+        imagebox = OffsetImage(logo_img, zoom=0.42)
         ab = AnnotationBbox(
-            imagebox, (0.095, 0.948),
+            imagebox, (0.10, hdr_y + hdr_h / 2),
             frameon=False, xycoords="data", zorder=10,
         )
         ax.add_artist(ab)
-        title_x = 0.56
-    else:
-        title_x = 0.5
+        partido_x = 0.57
 
-    header_lbl = "VALUE BET DETECTADO" if is_value else "Analisis de Partido"
-    ax.text(title_x, 0.948, header_lbl,
-            color="white", fontsize=11, fontweight="bold",
-            ha="center", va="center")
+    # Nombre del partido: tipografía grande sobre blanco
+    ax.text(partido_x, hdr_y + hdr_h * 0.62, partido,
+            color="#0C1529", fontsize=17, fontweight="bold",
+            ha="center", va="center", zorder=5)
 
-    # ── Subheader: liga y fecha ────────────────────────────────────────────
-    ax.text(0.08, 0.895, liga,     color=TXT_SEC, fontsize=8.5, va="center")
-    ax.text(0.92, 0.895, fecha_str, color=TXT_SEC, fontsize=8.5, va="center", ha="right")
+    # Subheader liga / fecha sobre el panel blanco
+    # Usamos posiciones fijas y alineaciones opuestas para evitar solapamientos
+    liga_x = 0.24 if logo_img is not None else 0.06
+    ax.text(liga_x, hdr_y + hdr_h * 0.22, liga.upper(),
+            color="#6B88B5", fontsize=9, va="center", ha="left", fontweight="bold", zorder=5)
+    ax.text(0.94, hdr_y + hdr_h * 0.22, fecha_str,
+            color="#6B88B5", fontsize=8.5, va="center", ha="right", zorder=5)
 
-    # ── Nombre del partido ────────────────────────────────────────────────
-    ax.text(0.5, 0.855, partido,
-            color=TXT_PRI, fontsize=13, fontweight="bold",
-            ha="center", va="center")
-
-    _separator(ax, 0.825)
+    _sep(ax, hdr_y - 0.005)
 
     # ── Secciones de resultados ───────────────────────────────────────────
-    bottom_limit = 0.13 if is_value else 0.06
-    section_h    = (0.82 - bottom_limit) / 3
-    BAR_X  = 0.14
-    BAR_W  = 0.68
-    BAR_H  = 0.040
-    BAR_MH = 0.027
+    results_top  = 0.815
+    bottom_limit = 0.14 if is_value else 0.07
+    section_h    = (results_top - bottom_limit) / 3
+    BAR_X  = 0.155
+    BAR_W  = 0.660
+    BAR_H  = 0.038
+    BAR_MH = 0.024
 
     for i, key in enumerate(RESULT_KEYS):
         label   = labels[key]
@@ -153,75 +191,115 @@ def generate_match_card(
         odd     = odds[key]
         is_vb   = label in vb_set
 
-        y_top = 0.82 - i * section_h
+        y_top    = 0.815 - i * section_h
+        sec_bg   = CARD_ALT if i % 2 == 1 else CARD
 
-        # Etiqueta e indicador de rol
-        pct_color = VALUE_CLR if is_vb else TXT_PRI
-        ax.text(0.08, y_top - 0.025,
-                LABELS_ICON[key],
-                color=ICON_COLORS[key], fontsize=7.5, fontweight="bold", va="center")
-        ax.text(0.21, y_top - 0.025,
-                label,
-                color=pct_color, fontsize=10, fontweight="bold", va="center")
-        ax.text(0.92, y_top - 0.025,
-                f"{model_p * 100:.0f}%",
-                color=pct_color, fontsize=11, fontweight="bold",
-                ha="right", va="center")
+        # Fondo de sección alternado
+        ax.add_patch(mpatches.Rectangle(
+            (0.03, y_top - section_h + 0.002), 0.94, section_h - 0.004,
+            facecolor=sec_bg, zorder=1,
+        ))
 
-        # Barra modelo (degradado suave)
-        y_model = y_top - 0.078
-        ax.text(0.075, y_model + BAR_H / 2, "modelo",
-                color=TXT_SEC, fontsize=7, va="center", ha="right")
+        icon_clr = ICON_COLORS[key]
+        pct_clr  = GOLD if is_vb else TXT_PRI
+
+        # Nombre del resultado (alineado a la izquierda)
+        ax.text(0.045, y_top - 0.027, label,
+                color=pct_clr, fontsize=12, fontweight="bold",
+                va="center", zorder=5)
+
+        # Porcentaje a la derecha (Principal)
+        ax.text(0.955, y_top - 0.027, f"{model_p * 100:.0f}%",
+                color=pct_clr, fontsize=20, fontweight="bold",
+                ha="right", va="center", zorder=5)
+
+        # ── Barra modelo ──────────────────────────────────────────────────
+        y_model = y_top - 0.073
+        ax.text(0.148, y_model + BAR_H / 2, "MODELO",
+                color=TXT_SEC, fontsize=7, va="center", ha="right",
+                fontweight="bold", zorder=5)
         _gradient_bar(ax, BAR_X, y_model, BAR_W, BAR_H, model_p,
                       VALUE_CMAP if is_vb else MODEL_CMAP)
+        # Etiqueta de porcentaje encima de la barra
+        ax.text(BAR_X + BAR_W + 0.01, y_model + BAR_H / 2,
+                f"{model_p * 100:.0f}%",
+                color=GOLD if is_vb else BLUE_EL,
+                fontsize=12, fontweight="bold", va="center", zorder=5)
 
-        # Barra betplay (degradado gris)
-        y_market = y_model - BAR_MH - 0.018
-        ax.text(0.075, y_market + BAR_MH / 2, "betplay",
-                color=TXT_SEC, fontsize=7, va="center", ha="right")
+        # ── Barra betplay ─────────────────────────────────────────────────
+        y_market = y_model - BAR_MH - 0.016
+        ax.text(0.148, y_market + BAR_MH / 2, "BETPLAY",
+                color=TXT_SEC, fontsize=7, va="center", ha="right",
+                fontweight="bold", zorder=5)
         if fair_p:
             _gradient_bar(ax, BAR_X, y_market, BAR_W, BAR_MH, fair_p, MARKET_CMAP)
             odd_str = f"@ {odd:.2f}" if odd else "—"
-            ax.text(BAR_X + BAR_W + 0.015, y_market + BAR_MH / 2,
+            ax.text(BAR_X + BAR_W + 0.01, y_market + BAR_MH / 2,
                     f"{fair_p * 100:.0f}%  {odd_str}",
-                    color=TXT_SEC, fontsize=7.5, va="center")
+                    color=TXT_SEC, fontsize=12, va="center", zorder=5)
 
-        # Badge de edge
+        # ── Badge de edge ─────────────────────────────────────────────────
         if is_vb and odd:
             edge    = (model_p * odd - 1) * 100
-            badge_y = y_market - 0.032
+            bx, by  = BAR_X, y_market - 0.038
+            bw, bh  = 0.30, 0.026
+            # Fondo del badge con degradado dorado
             ax.add_patch(FancyBboxPatch(
-                (BAR_X, badge_y - 0.012), 0.28, 0.024,
-                boxstyle="round,pad=0.005",
-                facecolor="#1a3a2a", edgecolor=VALUE_CLR, linewidth=0.8,
+                (bx, by), bw, bh,
+                boxstyle="round,pad=0.006",
+                facecolor="#2A1800", edgecolor=GOLD,
+                linewidth=1.0, zorder=4,
             ))
-            ax.text(BAR_X + 0.14, badge_y,
-                    f"Edge: +{edge:.0f}%",
-                    color=VALUE_CLR, fontsize=8, fontweight="bold",
-                    ha="center", va="center")
+            ax.text(bx + bw / 2, by + bh / 2,
+                    f"EDGE  +{edge:.0f}%",
+                    color=GOLD_LT, fontsize=8.5, fontweight="bold",
+                    ha="center", va="center", zorder=5)
 
         if i < 2:
-            _separator(ax, y_top - section_h + 0.01)
+            _sep(ax, y_top - section_h + 0.01)
 
-    # ── Footer de apuesta recomendada ─────────────────────────────────────
+    # ── Footer: apuesta recomendada ───────────────────────────────────────
     if is_value:
-        _separator(ax, bottom_limit + 0.055)
-        ax.text(0.5, bottom_limit + 0.038,
+        footer_top = bottom_limit + 0.045
+        _sep(ax, footer_top, alpha=0.7)
+
+        # Hacemos el recuadro del footer más compacto (menos alto)
+        footer_y_min = 0.065
+        footer_h = footer_top - footer_y_min
+        ax.add_patch(FancyBboxPatch(
+            (0.03, footer_y_min), 0.94, footer_h,
+            boxstyle="round,pad=0.010",
+            facecolor="#1A0E00", edgecolor=GOLD,
+            linewidth=0.8, zorder=2,
+        ))
+        
+        # Título del footer
+        ax.text(0.5, footer_top - 0.018,
                 "APUESTA RECOMENDADA",
-                color=VALUE_CLR, fontsize=9, fontweight="bold",
-                ha="center", va="center")
+                color=GOLD, fontsize=10.5, fontweight="bold",
+                ha="center", va="center", zorder=5)
+
         vb_parts = [
-            f"{lbl}  @{odd:.2f}  edge +{(prob * odd - 1) * 100:.0f}%"
-            for lbl, prob, odd, _ in value_bets
+            f"{lbl}  @{odd:.2f}  ·  edge +{(prob * odd - 1) * 100:.0f}%"
+            for lbl, prob, odd, _ in (value_bets or [])
         ]
-        ax.text(0.5, bottom_limit + 0.015,
+        # Posicionamos el texto de forma más compacta dentro del recuadro
+        ax.text(0.5, footer_top - 0.040,
                 "   ·   ".join(vb_parts),
-                color=TXT_PRI, fontsize=8.5,
-                ha="center", va="center")
+                color=TXT_PRI, fontsize=10,
+                ha="center", va="center", zorder=5)
+
+    # ── Branding footer ───────────────────────────────────────────────────
+    brand_y = 0.045
+    ax.text(0.5, brand_y,
+            "Sport Analytics  ·  Powered by XGBoost",
+            color="#2A4878", fontsize=7,
+            ha="center", va="center", zorder=5)
 
     # ── Render ────────────────────────────────────────────────────────────
     buf = io.BytesIO()
-    fig.savefig(buf, format="png", bbox_inches="tight", facecolor=BG, dpi=150)
+    fig.savefig(buf, format="png", bbox_inches="tight",
+                facecolor=BG, dpi=150)
     plt.close(fig)
     buf.seek(0)
     return buf.read()
