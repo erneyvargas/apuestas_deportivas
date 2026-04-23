@@ -29,6 +29,13 @@ variable "db_username" {
   default = "apuestas_admin"
 }
 
+variable "db_password" {
+  type        = string
+  sensitive   = true
+  nullable    = false
+  description = "Password RDS. Pasar via TF_VAR_db_password para no commitear."
+}
+
 # Free Tier: db.t3.micro (x86). NO usar t4g (Graviton) si quieres cubrir free tier.
 variable "db_instance_class" {
   type    = string

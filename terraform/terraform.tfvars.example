@@ -10,6 +10,9 @@ db_username          = "apuestas_admin"
 db_instance_class    = "db.t3.micro"
 db_allocated_storage = 20
 db_engine_version    = "18.0"
+# Password: NO poner aquí. Exportar como env var:
+#   En .env root:  TF_VAR_db_password=tu_pass_fuerte
+#   Manual:        export TF_VAR_db_password=tu_pass_fuerte
 
 # EC2 free tier
 ec2_instance_type = "t3.micro"

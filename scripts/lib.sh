@@ -8,6 +8,14 @@ TF_DIR="$PROJECT_ROOT/terraform"
 SSH_KEY="$HOME/.ssh/apuestas-key.pem"
 REGION="us-east-1"
 
+# Auto-carga .env (TF_VAR_*, API keys) si existe
+if [ -f "$PROJECT_ROOT/.env" ]; then
+  set -a
+  # shellcheck disable=SC1091
+  . "$PROJECT_ROOT/.env"
+  set +a
+fi
+
 # Colores log
 c_blue()  { printf "\033[34m%s\033[0m\n" "$*"; }
 c_green() { printf "\033[32m%s\033[0m\n" "$*"; }

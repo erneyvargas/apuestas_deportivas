@@ -7,5 +7,5 @@ resource "aws_ssm_parameter" "postgres_uri" {
   type        = "SecureString"
   tier        = "Standard"
 
-  value = "postgresql://${var.db_username}:${random_password.db.result}@${aws_db_instance.main.address}:${aws_db_instance.main.port}/${var.db_name}?sslmode=require"
+  value = "postgresql://${var.db_username}:${var.db_password}@${aws_db_instance.main.address}:${aws_db_instance.main.port}/${var.db_name}?sslmode=require"
 }

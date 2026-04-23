@@ -1,9 +1,3 @@
-resource "random_password" "db" {
-  length           = 28
-  special          = true
-  override_special = "!*+-_=."
-}
-
 resource "aws_db_subnet_group" "main" {
   name       = "${local.name_prefix}-db-subnets"
   subnet_ids = aws_subnet.private_db[*].id
@@ -24,7 +18,7 @@ resource "aws_db_instance" "main" {
 
   db_name  = var.db_name
   username = var.db_username
-  password = random_password.db.result
+  password = var.db_password
   port     = 5432
 
   db_subnet_group_name   = aws_db_subnet_group.main.name
